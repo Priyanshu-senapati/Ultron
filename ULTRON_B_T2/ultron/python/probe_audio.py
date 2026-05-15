@@ -1,0 +1,12 @@
+import sounddevice as sd
+out = sd.query_devices(kind='output')
+inp = sd.query_devices(kind='input')
+print("DEFAULT OUTPUT (where ULTRON's voice plays):")
+print(f"  name : {out['name']}")
+print(f"  rate : {out['default_samplerate']:.0f} Hz")
+print(f"  chs  : {out['max_output_channels']}")
+print()
+print("DEFAULT INPUT (where ULTRON listens):")
+print(f"  name : {inp['name']}")
+print(f"  rate : {inp['default_samplerate']:.0f} Hz")
+print(f"  chs  : {inp['max_input_channels']}")

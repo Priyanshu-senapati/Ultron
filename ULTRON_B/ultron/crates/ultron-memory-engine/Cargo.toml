@@ -1,0 +1,37 @@
+[package]
+name                   = "ultron-memory-engine"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+
+description = "ULTRON Module D — Memory Engine. Subscribes to insight_snapshot events, persists them to SQLite, learns productivity priors, detects patterns."
+
+[[bin]]
+name = "ultron-memory-engine"
+path = "src/main.rs"
+
+[dependencies]
+ultron-types       = { path = "../ultron-types" }
+ultron-quantum-log = { path = "../ultron-quantum-log" }
+
+tokio              = { workspace = true }
+tokio-tungstenite  = { workspace = true }
+futures            = { workspace = true }
+futures-util       = { workspace = true }
+
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+toml               = { workspace = true }
+
+rusqlite           = { workspace = true }
+
+anyhow             = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+chrono             = { workspace = true }
+parking_lot        = { workspace = true }
+dirs               = { workspace = true }

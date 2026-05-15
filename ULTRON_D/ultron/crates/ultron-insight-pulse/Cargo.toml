@@ -1,0 +1,35 @@
+[package]
+name                   = "ultron-insight-pulse"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+
+description = "ULTRON Module O — 5-signal cognitive-state fusion sidecar. Subscribes to the ultron-core WS bridge, computes InsightSnapshots, publishes them back."
+
+[[bin]]
+name = "ultron-insight-pulse"
+path = "src/main.rs"
+
+[dependencies]
+ultron-types       = { path = "../ultron-types" }
+ultron-quantum-log = { path = "../ultron-quantum-log" }
+
+tokio              = { workspace = true }
+tokio-tungstenite  = { workspace = true }
+futures            = { workspace = true }
+futures-util       = { workspace = true }
+
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+toml               = { workspace = true }
+
+anyhow             = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+chrono             = { workspace = true }
+parking_lot        = { workspace = true }
+dirs               = { workspace = true }

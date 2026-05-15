@@ -1,0 +1,64 @@
+# ── Rust build artefacts ────────────────────────────────────────────
+target/
+**/target/
+*.rlib
+*.rmeta
+*.pdb
+
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Virtualenvs — these are huge (3GB+) and easy to recreate.
+.venv/
+venv/
+env/
+
+# ── ULTRON-specific data / logs / artefacts ─────────────────────────
+# SQLite databases may contain real user data — never commit.
+*.db
+*.db-wal
+*.db-shm
+data/
+logs/
+screenshots/
+*.log
+*.log.err
+
+# Generated config / tokens (config lives in %APPDATA%, but be defensive).
+config.toml
+config.local.toml
+
+# Python sidecar transient state.
+**/__pycache__/
+**/.cache/
+
+# Ollama models / weights — too large for git.
+*.gguf
+*.bin
+*.safetensors
+
+# ── Editor / OS ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Node — if any frontend ever lands here.
+node_modules/
+dist/
+build/
+
+# Claude Code per-project state (settings.local.json may have user paths).
+.claude/

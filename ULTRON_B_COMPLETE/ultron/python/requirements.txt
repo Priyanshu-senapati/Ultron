@@ -1,0 +1,32 @@
+# Runtime dependencies for the Module-O Python sidecar.
+websockets>=12.0,<14
+httpx>=0.27,<1.0
+
+# Stdlib `tomllib` is 3.11+; on 3.10 use the backport.
+tomli>=2.0; python_version < "3.11"
+
+# ── Module B — Voice Engine ─────────────────────────────────────────────
+# STT (GPU on Priyanshu's RTX 5070 Ti). CPU fallback baked in.
+faster-whisper>=1.0.0
+# Required transitively by faster-whisper but worth pinning.
+numpy>=1.24.0
+
+# TTS — primary (local CPU) and fallback (Microsoft Edge endpoint).
+piper-tts>=1.2.0
+edge-tts>=6.1.0
+
+# End-of-speech detection. silero-vad ships via torch.hub on first run,
+# so we just need torch itself installed.
+torch>=2.0.0
+
+# Audio I/O — sounddevice wraps PortAudio. On Windows pip pulls a
+# wheel with the lib bundled; on Linux you need libportaudio2 from apt.
+sounddevice>=0.4.6
+
+# Global hotkey + clipboard (Windows; works on Linux/macOS with caveats).
+keyboard>=0.13.5
+pyperclip>=1.8.2
+
+# Test-only — safe to install alongside; not imported at runtime.
+pytest>=8.0,<9
+pytest-asyncio>=0.23,<1.0

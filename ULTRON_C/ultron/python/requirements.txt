@@ -1,0 +1,14 @@
+# Runtime dependencies for ULTRON Python sidecars.
+websockets>=12.0,<14
+httpx>=0.27,<1.0
+
+# Stdlib `tomllib` is 3.11+; on 3.10 use the backport.
+tomli>=2.0; python_version < "3.11"
+
+# Module C (LLM Client) — optional, only needed if using Claude fallback.
+# Set ANTHROPIC_API_KEY or config.toml [llm] claude_api_key to activate.
+anthropic>=0.30
+
+# Test-only — safe to install alongside; not imported at runtime.
+pytest>=8.0,<9
+pytest-asyncio>=0.23,<1.0

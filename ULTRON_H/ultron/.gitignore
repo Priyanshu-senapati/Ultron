@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# ULTRON runtime data — NEVER commit
+/data/
+/.ultron/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

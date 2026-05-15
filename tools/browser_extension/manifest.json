@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "ULTRON Tab Reporter",
+  "version": "1.0.0",
+  "description": "Reports the active tab's URL and title to ULTRON's local bridge so the cognitive twin knows what page you're on.",
+  "permissions": ["tabs", "activeTab", "storage"],
+  "host_permissions": ["http://127.0.0.1:8766/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "ULTRON Tab Reporter"
+  }
+}
