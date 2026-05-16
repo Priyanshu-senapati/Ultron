@@ -93,13 +93,17 @@ class VoiceConfig:
     post_speak_cooldown_secs: float = 2.5
 
     # ── Recording ──────────────────────────────────────────────────────
-    vad_threshold: float = 0.5
-    # End-of-speech threshold. Earlier values (1500, 3000) still cut the
-    # user off mid-thought on long questions with natural pauses. 4500ms
-    # gives a generous pause budget. If you want to "send it" you can
-    # always release the hotkey early.
-    silence_timeout_ms: int = 4500
-    max_record_secs: int = 60
+    # Slightly looser VAD so quiet phrasing isn't classified as silence.
+    vad_threshold: float = 0.4
+    # End-of-speech threshold. Earlier values (1500, 3000, 4500) still
+    # cut the user off mid-thought on long requests with natural pauses
+    # ("Ultron, … [thinking] … remind me to …"). 7000 ms is generous
+    # enough to bridge a long pause; you can still "send it" early by
+    # releasing the hotkey.
+    silence_timeout_ms: int = 7000
+    # Lifted from 60 → 180 s so longer dictations (a journal entry or a
+    # multi-step instruction) can run without being clipped.
+    max_record_secs: int = 180
     # Whisper's native sample rate. Don't change unless you also change
     # SileroVAD's chunk size — they're coupled (512 samples = 32ms at 16kHz).
     sample_rate: int = 16000

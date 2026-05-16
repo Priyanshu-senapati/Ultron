@@ -155,10 +155,14 @@ class ContextAssembler:
         else:
             focus_app = "[ULTRON's own terminal — IGNORE for activity context]"
 
+        # Metric line uses obfuscated keys so the model is less primed
+        # to echo "your cognitive load is …". The rule against
+        # volunteering these is in the system prompt; this just removes
+        # the temptation to repeat the literal label.
         ctx_lines.append(
-            f"Cognitive load: {state.cognitive_load:.2f} | "
-            f"Tension: {state.tension:.2f} ({state.tension_band}) | "
-            f"Focus: {focus_app} ({state.focus_category})"
+            f"[metrics] load={state.cognitive_load:.2f} "
+            f"t={state.tension:.2f}({state.tension_band}) "
+            f"app={focus_app} cat={state.focus_category}"
         )
 
         if state.fatigue_flag:

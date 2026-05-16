@@ -105,6 +105,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         knowledge_search,
         memory_query,
         money_query,
+        open_app,
         plan_query,
         read_file,
         screenshot,
@@ -129,6 +130,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         plan_query.build(config),
         kg_query.build(config),
         dopamine_query.build(config),
+        open_app.build(config),
     ):
         # The config-level confirm list is a strict additive override.
         if tool.name in config.confirm_required_tools and not tool.confirm_required:

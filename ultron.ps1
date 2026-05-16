@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'status', 'chat', 'logs', 'restart', 'hud', '')]
+    [ValidateSet('start', 'stop', 'status', 'chat', 'logs', 'restart', 'hud', 'spectacle', '')]
     [string]$Command = 'status'
 )
 
@@ -48,6 +48,8 @@ $PyProcs = @(
     @{ Tag = 'kg-service';       Script = "$PY_DIR\kg_service.py" },
     @{ Tag = 'dopamine-service'; Script = "$PY_DIR\dopamine_service.py" },
     @{ Tag = 'hud-service';      Script = "$PY_DIR\hud_service.py" },
+    @{ Tag = 'sysinfo-service';  Script = "$PY_DIR\sysinfo_service.py" },
+    @{ Tag = 'dailydata-service';Script = "$PY_DIR\dailydata_service.py" },
     @{ Tag = 'llm-service';      Script = "$PY_DIR\llm_service.py" },
     @{ Tag = 'insight_pulse';    Script = "$PY_DIR\insight_pulse.py" },
     @{ Tag = 'voice_engine';     Script = "$PY_DIR\voice_engine.py" },
@@ -192,6 +194,15 @@ function Cmd-Hud {
     & $VENV "$PY_DIR\hud.py"
 }
 
+function Cmd-Spectacle {
+    if (-not (Test-PortListening 9420)) {
+        Write-Warning "bridge not running -- run 'ultron start' first"
+        return
+    }
+    & $VENV "$PY_DIR\spectacle_hud.py"
+    Write-Host "Spectacle HUD launched in a chromeless browser window." -ForegroundColor Cyan
+}
+
 function Cmd-Stop {
     Write-Host ""
     Write-Host "ULTRON stopping..." -ForegroundColor Cyan
@@ -271,6 +282,7 @@ switch ($Command) {
     'chat'    { Cmd-Chat }
     'logs'    { Cmd-Logs }
     'hud'     { Cmd-Hud }
+    'spectacle' { Cmd-Spectacle }
     'restart' { Cmd-Restart }
     default   { Cmd-Status }
 }

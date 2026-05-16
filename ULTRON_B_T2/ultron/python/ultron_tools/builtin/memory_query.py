@@ -30,7 +30,7 @@ def build(config: ToolsConfig) -> Tool:
     async def handler(args: dict[str, Any]) -> dict[str, Any]:
         kind = str(args.get("kind", "recent_snapshots")).strip()
         limit = int(args.get("limit", 10))
-        limit = max(1, min(limit, 200))
+        limit = max(1, min(limit, 500))
 
         if not default_db.exists():
             return {"kind": kind, "rows": [], "note": "memory.db not present yet"}
@@ -39,8 +39,6 @@ def build(config: ToolsConfig) -> Tool:
         try:
             cur = conn.cursor()
             if kind == "recent_snapshots":
-                # The memory engine names the table insight_snapshots in
-                # its schema; column names follow InsightSnapshot.
                 cur.execute(
                     "SELECT ts_unix_ms, focus_app, tension, cognitive_load, phase "
                     "FROM insight_snapshots ORDER BY ts_unix_ms DESC LIMIT ?",
@@ -54,27 +52,65 @@ def build(config: ToolsConfig) -> Tool:
                     (limit,),
                 )
             elif kind == "patterns":
-                # `patterns` table holds detected energy/app/tension rollups.
                 cur.execute(
                     "SELECT kind, detail, score, last_seen_unix_ms "
                     "FROM patterns ORDER BY last_seen_unix_ms DESC LIMIT ?",
                     (limit,),
                 )
+            elif kind == "time_window":
+                # "What was I doing between X and Y?" — returns the focus
+                # app + tension snapshots covering the requested window,
+                # plus a top-N rollup so the model can summarise without
+                # quoting every row.
+                since_ms = int(args.get("since_ts_unix_ms") or 0)
+                until_ms = int(args.get("until_ts_unix_ms") or 0)
+                if not since_ms or not until_ms or until_ms <= since_ms:
+                    raise ValueError(
+                        "time_window needs since_ts_unix_ms and until_ts_unix_ms"
+                    )
+                cur.execute(
+                    "SELECT ts_unix_ms, focus_app, tension, cognitive_load, phase "
+                    "FROM insight_snapshots "
+                    "WHERE ts_unix_ms >= ? AND ts_unix_ms <= ? "
+                    "ORDER BY ts_unix_ms ASC LIMIT ?",
+                    (since_ms, until_ms, limit),
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+                cur.execute(
+                    "SELECT focus_app, COUNT(*) AS samples "
+                    "FROM insight_snapshots "
+                    "WHERE ts_unix_ms >= ? AND ts_unix_ms <= ? "
+                    "GROUP BY focus_app ORDER BY samples DESC LIMIT 10",
+                    (since_ms, until_ms),
+                )
+                rollup = [dict(r) for r in cur.fetchall()]
+                return {
+                    "kind": kind,
+                    "rows": rows,
+                    "count": len(rows),
+                    "rollup": rollup,
+                    "since_ts_unix_ms": since_ms,
+                    "until_ts_unix_ms": until_ms,
+                }
             else:
                 raise ValueError(
-                    f"unknown kind {kind!r} — use recent_snapshots|app_rollup|patterns"
+                    f"unknown kind {kind!r} — use "
+                    "recent_snapshots|app_rollup|patterns|time_window"
                 )
             rows = [dict(r) for r in cur.fetchall()]
             return {"kind": kind, "rows": rows, "count": len(rows)}
         except sqlite3.OperationalError as exc:
-            # The table likely doesn't exist yet — return empty rather than 500.
             return {"kind": kind, "rows": [], "note": f"db error: {exc}"}
         finally:
             conn.close()
 
     return Tool(
         name="memory_query",
-        description="Read-only query over memory.db. kinds: recent_snapshots, app_rollup, patterns.",
+        description=(
+            "Read-only query over memory.db. kinds: "
+            "recent_snapshots, app_rollup, patterns, "
+            "time_window (focus history between two unix-ms timestamps)."
+        ),
         category="memory",
         confirm_required=False,
         args_schema={
@@ -82,9 +118,12 @@ def build(config: ToolsConfig) -> Tool:
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["recent_snapshots", "app_rollup", "patterns"],
+                    "enum": ["recent_snapshots", "app_rollup",
+                             "patterns", "time_window"],
                 },
-                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "since_ts_unix_ms": {"type": "integer", "minimum": 0},
+                "until_ts_unix_ms": {"type": "integer", "minimum": 0},
             },
             "additionalProperties": False,
         },

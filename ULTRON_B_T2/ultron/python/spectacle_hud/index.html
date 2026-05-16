@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ULTRON</title>
+<style>
+  :root {
+    --bg-0: #02060c;
+    --bg-1: #050b16;
+    --bg-2: #0a1422;
+    --ink: #e8f4ff;
+    --ink-dim: #6f8aa3;
+    --ink-faint: #2c3e54;
+    --accent: #00f0ff;
+    --accent-dim: #00b4c9;
+    --warn: #ffb74d;
+    --bad: #ff5c7c;
+    --good: #6dffb1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100vw; height: 100vh; overflow: hidden;
+    background: var(--bg-0); color: var(--ink);
+    font-family: 'Consolas', 'Cascadia Mono', 'Menlo', monospace;
+    user-select: none; cursor: default;
+  }
+  body {
+    background:
+      radial-gradient(ellipse at top left, rgba(0,240,255,.06), transparent 60%),
+      radial-gradient(ellipse at bottom right, rgba(0,180,200,.04), transparent 60%),
+      var(--bg-0);
+    display: grid;
+    grid-template-rows: 64px 1fr 36px;
+  }
+
+  /* ---- top bar -------------------------------------------------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--ink-faint);
+    background: linear-gradient(180deg, rgba(0,240,255,.04), transparent);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 18px var(--accent);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .brand .name {
+    font-size: 22px; letter-spacing: .35em; color: var(--accent);
+    text-shadow: 0 0 16px rgba(0,240,255,.35);
+  }
+  .brand .ver { color: var(--ink-faint); font-size: 12px; }
+  .top-meta { display: flex; gap: 22px; align-items: center; font-size: 13px; }
+  .top-meta .item { display: flex; align-items: baseline; gap: 6px; }
+  .top-meta .item .k { color: var(--ink-dim); font-size: 11px; letter-spacing: .15em; text-transform: uppercase; }
+  .top-meta .item .v { color: var(--ink); font-size: 15px; }
+  @keyframes pulse {
+    0%,100% { transform: scale(1); box-shadow: 0 0 8px var(--accent); }
+    50%     { transform: scale(1.25); box-shadow: 0 0 22px var(--accent); }
+  }
+
+  /* ---- main grid ----------------------------------------------- */
+  main {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 14px; padding: 14px;
+    overflow: hidden;
+  }
+  .panel {
+    background: var(--bg-1);
+    border: 1px solid var(--ink-faint);
+    border-radius: 4px;
+    padding: 14px 18px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .panel::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+    opacity: .6;
+  }
+  .panel h3 {
+    color: var(--ink-dim); font-size: 11px; letter-spacing: .25em;
+    text-transform: uppercase; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .panel h3 .ago { color: var(--ink-faint); font-size: 10px; letter-spacing: .1em; }
+  .big { font-size: 28px; color: var(--ink); letter-spacing: .02em; }
+  .bigger { font-size: 40px; line-height: 1.1; }
+  .row { display: flex; justify-content: space-between; align-items: baseline;
+         padding: 3px 0; font-size: 14px; }
+  .row .k { color: var(--ink-dim); }
+  .row .v { color: var(--ink); }
+  .pos { color: var(--good); }
+  .neg { color: var(--bad); }
+  .warn { color: var(--warn); }
+
+  /* score panel spans 2 rows on the left */
+  .score { grid-row: span 2; }
+  .score .score-val { font-size: 92px; font-weight: 300;
+                       text-shadow: 0 0 40px rgba(0,240,255,.4); }
+  .score .score-band { color: var(--ink-dim); letter-spacing: .25em;
+                        text-transform: uppercase; font-size: 13px; margin-top: 6px; }
+  .score ul { list-style: none; margin-top: 22px; }
+  .score ul li {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 0; border-bottom: 1px dashed var(--ink-faint); font-size: 14px;
+  }
+  .score ul li:last-child { border-bottom: none; }
+
+  /* news scroll */
+  .news ul { list-style: none; overflow: hidden; }
+  .news ul li {
+    padding: 7px 0; border-bottom: 1px dashed var(--ink-faint);
+    font-size: 13px; line-height: 1.35;
+  }
+  .news .src { color: var(--ink-faint); font-size: 10px; letter-spacing: .15em;
+               text-transform: uppercase; }
+
+  /* schedule + recent activity */
+  .schedule li, .activity li {
+    display: grid; grid-template-columns: 60px 1fr auto;
+    gap: 10px; padding: 6px 0; font-size: 13px;
+    border-bottom: 1px dashed var(--ink-faint);
+  }
+  .schedule li:last-child, .activity li:last-child { border-bottom: none; }
+  .schedule .when { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .activity .when { color: var(--ink-dim); font-variant-numeric: tabular-nums; font-size: 11px; }
+
+  /* footer status */
+  footer {
+    border-top: 1px solid var(--ink-faint); padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--ink-dim);
+  }
+  footer .listening { color: var(--accent); }
+  footer .voice-state { letter-spacing: .25em; text-transform: uppercase; }
+  footer .conn-good { color: var(--good); }
+  footer .conn-bad { color: var(--bad); }
+
+  /* ambient grid lines */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(0deg, rgba(0,240,255,.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,240,255,.02) 1px, transparent 1px);
+    background-size: 60px 60px;
+    z-index: 0;
+  }
+  header, main, footer { position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="dot"></div>
+    <div class="name">ULTRON</div>
+    <div class="ver">spectacle</div>
+  </div>
+  <div class="top-meta">
+    <div class="item"><span class="k">time</span><span class="v" id="time-now">--:--</span></div>
+    <div class="item"><span class="k">date</span><span class="v" id="date-now">--</span></div>
+    <div class="item"><span class="k">batt</span><span class="v" id="batt">--</span></div>
+    <div class="item"><span class="k">wifi</span><span class="v" id="wifi">--</span></div>
+    <div class="item"><span class="k">bt</span><span class="v" id="bt">--</span></div>
+  </div>
+</header>
+
+<main>
+  <section class="panel score">
+    <h3>cognitive score <span class="ago" id="score-ago">--</span></h3>
+    <div class="bigger score-val" id="score-val">0.0</div>
+    <div class="score-band" id="score-band">drift idle flow</div>
+    <ul>
+      <li><span class="k">workout</span><span class="v" id="streak-workout">0d</span></li>
+      <li><span class="k">sleep</span><span class="v" id="streak-sleep">0d</span></li>
+      <li><span class="k">weight</span><span class="v" id="streak-weight">0d</span></li>
+      <li><span class="k">last sleep</span><span class="v" id="sleep-hours">--</span></li>
+      <li><span class="k">last weight</span><span class="v" id="last-weight">--</span></li>
+      <li><span class="k">mood</span><span class="v" id="mood">--</span></li>
+    </ul>
+  </section>
+
+  <section class="panel weather">
+    <h3>weather <span class="ago" id="weather-ago">--</span></h3>
+    <div class="big" id="weather-temp">--&deg;</div>
+    <div class="row"><span class="k" id="weather-label">--</span><span class="v" id="weather-city">--</span></div>
+    <div class="row"><span class="k">feels</span><span class="v" id="weather-feels">--</span></div>
+    <div class="row"><span class="k">humidity</span><span class="v" id="weather-humid">--</span></div>
+    <div class="row"><span class="k">wind</span><span class="v" id="weather-wind">--</span></div>
+    <div class="row"><span class="k">today</span><span class="v" id="weather-hilo">--</span></div>
+  </section>
+
+  <section class="panel money">
+    <h3>money &middot; markets <span class="ago" id="money-ago">--</span></h3>
+    <div class="row"><span class="k">month net</span><span class="v" id="money-net">--</span></div>
+    <div class="row"><span class="k">expense</span><span class="v" id="money-expense">--</span></div>
+    <div class="row"><span class="k">budget alerts</span><span class="v" id="money-alerts">--</span></div>
+    <div style="margin-top:14px;"></div>
+    <div class="row"><span class="k">sensex</span><span class="v" id="sensex">--</span></div>
+    <div class="row"><span class="k">nifty</span><span class="v" id="nifty">--</span></div>
+    <div class="row"><span class="k">tape</span><span class="v" id="market-insight" style="font-size:11px;">--</span></div>
+  </section>
+
+  <section class="panel news">
+    <h3>headlines &middot; india <span class="ago" id="news-ago">--</span></h3>
+    <ul id="news-list">
+      <li><span class="src">--</span><br/>waiting&hellip;</li>
+    </ul>
+  </section>
+
+  <section class="panel schedule">
+    <h3>upcoming <span class="ago" id="plan-ago">--</span></h3>
+    <ul id="plan-list">
+      <li><span class="when">--</span><span>waiting&hellip;</span><span></span></li>
+    </ul>
+  </section>
+
+  <section class="panel activity">
+    <h3>recent activity <span class="ago" id="activity-ago">--</span></h3>
+    <ul id="activity-list">
+      <li><span class="when">--</span><span>focus &mdash; waiting</span><span></span></li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div>
+    voice: <span class="voice-state" id="voice-state">idle</span>
+    <span id="voice-detail" style="margin-left:14px;"></span>
+  </div>
+  <div>bridge: <span id="conn-state" class="conn-bad">connecting&hellip;</span></div>
+</footer>
+
+<script>
+// Token comes from the URL fragment so it doesn't hit server logs.
+// Launched by spectacle_hud.py: file:///…/index.html#token=<token>
+const HASH = new URLSearchParams(location.hash.slice(1));
+const TOKEN = HASH.get("token") || "";
+const WS_URL = HASH.get("ws") || "ws://127.0.0.1:9420/ws";
+
+const $ = (id) => document.getElementById(id);
+
+function fmtNum(n, sign=true) {
+  if (n === null || n === undefined || isNaN(n)) return "--";
+  const s = sign && n > 0 ? "+" : "";
+  return s + (Math.round(n * 100) / 100).toFixed(2);
+}
+function fmtAgo(ts) {
+  if (!ts) return "--";
+  const dt = Date.now()/1000 - ts;
+  if (dt < 60) return Math.floor(dt) + "s ago";
+  if (dt < 3600) return Math.floor(dt/60) + "m ago";
+  if (dt < 86400) return Math.floor(dt/3600) + "h ago";
+  return Math.floor(dt/86400) + "d ago";
+}
+function fmtTimeHHMM(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+// Local clock
+function tickClock() {
+  const now = new Date();
+  $("time-now").textContent =
+    now.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+  $("date-now").textContent =
+    now.toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"});
+}
+tickClock(); setInterval(tickClock, 1000);
+
+// WS
+let ws = null;
+let lastTs = {};
+function setConn(ok, msg) {
+  const el = $("conn-state");
+  el.textContent = msg;
+  el.className = ok ? "conn-good" : "conn-bad";
+}
+function connect() {
+  setConn(false, "connecting");
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    ws.send(JSON.stringify({op:"hello",token:TOKEN,role:"spectacle-hud"}));
+  };
+  ws.onclose = () => {
+    setConn(false, "disconnected");
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => setConn(false, "error");
+  ws.onmessage = (e) => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.op === "welcome") {
+      setConn(true, "live");
+      ws.send(JSON.stringify({op:"subscribe", kinds:[
+        "hud_status_tick","weather_update","news_update","stocks_update",
+        "system_info","dopamine_score_update","voice_state_changed",
+        "wake_listener_heard","insight_snapshot","visual_label","focus_app",
+      ]}));
+      // Kick a tick now.
+      ws.send(JSON.stringify({op:"publish", kind:"hud_status_request", payload:{}}));
+      ws.send(JSON.stringify({op:"publish", kind:"system_info_request", payload:{}}));
+      ws.send(JSON.stringify({op:"publish", kind:"weather_request", payload:{}}));
+      ws.send(JSON.stringify({op:"publish", kind:"stocks_request", payload:{}}));
+      ws.send(JSON.stringify({op:"publish", kind:"news_request", payload:{}}));
+      return;
+    }
+    if (m.op !== "event") return;
+    handle(m.kind, m.payload || {});
+  };
+}
+connect();
+
+// Update the "ago" labels every 5s.
+setInterval(() => {
+  for (const [k, id] of Object.entries({
+    score:"score-ago", weather:"weather-ago", money:"money-ago",
+    news:"news-ago", plan:"plan-ago", activity:"activity-ago",
+  })) {
+    if (lastTs[k]) $(id).textContent = fmtAgo(lastTs[k]);
+  }
+}, 5000);
+
+// Activity ring buffer (most-recent first).
+const activity = [];
+function pushActivity(when, label, dur) {
+  activity.unshift({when, label, dur});
+  if (activity.length > 8) activity.length = 8;
+  renderActivity();
+}
+function renderActivity() {
+  const el = $("activity-list");
+  el.innerHTML = "";
+  for (const a of activity) {
+    const li = document.createElement("li");
+    li.innerHTML =
+      `<span class="when">${a.when}</span><span>${a.label}</span><span class="when">${a.dur||""}</span>`;
+    el.appendChild(li);
+  }
+}
+
+function handle(kind, p) {
+  if (kind === "hud_status_tick") {
+    lastTs.score = p.ts;
+    const score = (p.dopamine && p.dopamine.available) ? p.dopamine.score : null;
+    if (score !== null) {
+      $("score-val").textContent = fmtNum(score);
+      const cls = score > 2 ? "pos" : score < -2 ? "neg" : "";
+      $("score-val").className = "bigger score-val " + cls;
+      $("score-band").textContent = score >= 2 ? "FLOW" :
+                                     score <= -5 ? "DRIFT" :
+                                     score <= -2 ? "low" : "steady";
+    }
+    if (p.wellness && p.wellness.available) {
+      for (const s of (p.wellness.streaks || [])) {
+        const el = $("streak-"+s.kind);
+        if (el) el.textContent = (s.current||0) + "d";
+      }
+      const l = p.wellness.latest || {};
+      $("last-weight").textContent = (l.weight_kg ?? "--") + (l.weight_kg ? " kg" : "");
+      $("mood").textContent = l.mood ? `${l.mood}/5` : "--";
+    }
+    if (p.money && p.money.available) {
+      const s = p.money.summary || {};
+      $("money-net").textContent = (s.net !== undefined) ? "₹" + s.net.toLocaleString("en-IN") : "--";
+      $("money-expense").textContent = (s.expense !== undefined) ? "₹" + s.expense.toLocaleString("en-IN") : "--";
+      const al = p.money.budget_alerts || [];
+      $("money-alerts").textContent = al.length
+        ? al.length + " " + (al.length === 1 ? "alert" : "alerts")
+        : "ok";
+      $("money-alerts").className = "v " + (al.length ? "warn" : "pos");
+      lastTs.money = p.ts;
+    }
+    if (p.planner && p.planner.available) {
+      const ev = []
+        .concat((p.planner.next_blocks || []).map(b => ({ts:b.ts_start, title:b.title, kind:b.kind})))
+        .concat((p.planner.next_events || []).map(e => ({ts:e.ts, title:e.title, kind:e.kind})))
+        .sort((a,b) => a.ts - b.ts).slice(0, 5);
+      const el = $("plan-list");
+      el.innerHTML = "";
+      if (!ev.length) {
+        el.innerHTML = "<li><span class='when'>--</span><span>(nothing scheduled)</span><span></span></li>";
+      }
+      for (const e of ev) {
+        const li = document.createElement("li");
+        li.innerHTML =
+          `<span class="when">${fmtTimeHHMM(e.ts)}</span><span>${e.title}</span><span class="when">${e.kind||""}</span>`;
+        el.appendChild(li);
+      }
+      lastTs.plan = p.ts;
+    }
+  }
+  else if (kind === "system_info") {
+    const b = p.battery || {};
+    if (b.available) {
+      $("batt").textContent = b.percent + "%" + (b.plugged ? " ⚡" : "");
+    } else { $("batt").textContent = "--"; }
+    const w = p.wifi || {};
+    $("wifi").textContent = w.connected ? (w.ssid || "on") : "off";
+    const bt = p.bluetooth || {};
+    $("bt").textContent = bt.available ? `${bt.connected_devices} dev` : "off";
+  }
+  else if (kind === "weather_update") {
+    if (!p.available) { $("weather-label").textContent = p.reason || "unavailable"; return; }
+    $("weather-temp").textContent = (p.temp_c !== null && p.temp_c !== undefined)
+        ? Math.round(p.temp_c) + "°" : "--°";
+    $("weather-label").textContent = p.label || "";
+    $("weather-city").textContent = p.city || "";
+    $("weather-feels").textContent = (p.feels_c !== null && p.feels_c !== undefined)
+        ? Math.round(p.feels_c) + "°" : "--";
+    $("weather-humid").textContent = (p.humidity !== null && p.humidity !== undefined)
+        ? p.humidity + "%" : "--";
+    $("weather-wind").textContent = (p.wind_kmh !== null && p.wind_kmh !== undefined)
+        ? p.wind_kmh + " km/h" : "--";
+    if (p.high_c !== null && p.low_c !== null) {
+      $("weather-hilo").textContent = `${Math.round(p.high_c)}° / ${Math.round(p.low_c)}°`;
+    }
+    lastTs.weather = p.ts;
+  }
+  else if (kind === "stocks_update") {
+    const byTicker = {};
+    for (const r of (p.rows || [])) byTicker[r.ticker] = r;
+    const sx = byTicker["^BSESN"];
+    const ny = byTicker["^NSEI"];
+    if (sx) {
+      $("sensex").textContent =
+        `${sx.close.toLocaleString("en-IN")} ${sx.change_pct_label}`;
+      $("sensex").className = "v " + (sx.change_pct >= 0 ? "pos" : "neg");
+    }
+    if (ny) {
+      $("nifty").textContent =
+        `${ny.close.toLocaleString("en-IN")} ${ny.change_pct_label}`;
+      $("nifty").className = "v " + (ny.change_pct >= 0 ? "pos" : "neg");
+    }
+    $("market-insight").textContent = p.insight || "";
+    lastTs.money = p.ts;
+  }
+  else if (kind === "news_update") {
+    const el = $("news-list");
+    el.innerHTML = "";
+    for (const h of (p.headlines || [])) {
+      const li = document.createElement("li");
+      li.innerHTML = `<div class="src">${h.source||""}</div>${h.title}`;
+      el.appendChild(li);
+    }
+    if (!(p.headlines && p.headlines.length)) {
+      el.innerHTML = "<li><span class='src'>--</span><br/>no headlines</li>";
+    }
+    lastTs.news = p.ts;
+  }
+  else if (kind === "dopamine_score_update") {
+    $("score-val").textContent = fmtNum(p.score);
+    const cls = p.score > 2 ? "pos" : p.score < -2 ? "neg" : "";
+    $("score-val").className = "bigger score-val " + cls;
+    lastTs.score = p.ts;
+  }
+  else if (kind === "voice_state_changed") {
+    $("voice-state").textContent = p.state || "idle";
+    $("voice-state").className = "voice-state " + (p.state === "listening" ? "listening" : "");
+  }
+  else if (kind === "wake_listener_heard") {
+    $("voice-detail").textContent = p.matched ? "→ " + (p.query || "(wake)")
+        : (p.text ? "~ " + p.text.slice(0,60) : "");
+  }
+  else if (kind === "focus_app") {
+    const app = (p.title || p.app || "").slice(0, 70);
+    if (app) pushActivity(fmtTimeHHMM(Date.now()/1000), app, "");
+    lastTs.activity = Date.now()/1000;
+  }
+  else if (kind === "visual_label") {
+    const lab = (p.label || p.summary || "").slice(0, 70);
+    if (lab) pushActivity(fmtTimeHHMM(Date.now()/1000), "📷 " + lab, "");
+    lastTs.activity = Date.now()/1000;
+  }
+}
+
+// Esc closes (Edge --app honours window.close())
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") window.close();
+});
+</script>
+</body>
+</html>

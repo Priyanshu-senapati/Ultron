@@ -61,7 +61,7 @@ explain why before issuing.\
 _ROLE_DEFAULTS: dict[AgentRole, tuple[str, tuple[str, ...]]] = {
     AgentRole.COORDINATOR: (
         _COORDINATOR_PROMPT,
-        ("read_file", "web_search", "knowledge_search", "memory_query", "screenshot", "code_query", "money_query", "wellness_query", "plan_query", "kg_query", "dopamine_query"),
+        ("read_file", "web_search", "knowledge_search", "memory_query", "screenshot", "code_query", "money_query", "wellness_query", "plan_query", "kg_query", "dopamine_query", "open_app"),
     ),
     AgentRole.RESEARCHER: (
         _RESEARCHER_PROMPT,
@@ -77,7 +77,7 @@ _ROLE_DEFAULTS: dict[AgentRole, tuple[str, tuple[str, ...]]] = {
     ),
     AgentRole.SYSADMIN: (
         _SYSADMIN_PROMPT,
-        ("shell", "read_file", "memory_query"),
+        ("shell", "read_file", "memory_query", "open_app"),
     ),
 }
 

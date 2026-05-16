@@ -47,8 +47,15 @@ BusyPredicate = Callable[[], bool]
 
 
 def _normalise(text: str) -> str:
-    """Lowercase + strip punctuation. Whisper sometimes returns 'Ultron,'."""
-    return re.sub(r"[^\w\s']", " ", text.lower()).strip()
+    """Lowercase + strip punctuation + collapse whitespace.
+
+    Whisper returns transcripts like ``"Hey, Ultron."`` or
+    ``"hey   ultron"``. Without collapsing internal whitespace, the
+    naive ``norm.find("hey ultron")`` misses because the punctuation
+    replacement leaves a double-space gap (``"hey  ultron"``).
+    """
+    stripped = re.sub(r"[^\w\s']", " ", text.lower())
+    return re.sub(r"\s+", " ", stripped).strip()
 
 
 def amplify_to_peak(audio: np.ndarray, target_peak: float = 0.3,
@@ -79,12 +86,19 @@ class WakeWordListener:
     # Phrases that trigger a graceful shutdown. Checked BEFORE the wake
     # word — saying "bye ultron" shouldn't bring up a listening prompt,
     # it should send ULTRON to sleep.
+    # Whisper homophones for "bye": "by", "buy", "bai", "bi". Include
+    # them so the user can fire the shutdown without enunciating
+    # carefully. Likewise "good night"/"goodnight" — natural shutoff phrases.
     SHUTDOWN_PHRASES: tuple[str, ...] = (
-        "bye ultron", "goodbye ultron", "good bye ultron",
+        "bye ultron", "by ultron", "buy ultron", "bai ultron", "bi ultron",
+        "goodbye ultron", "good bye ultron",
+        "goodnight ultron", "good night ultron",
         "shutdown ultron", "shut down ultron",
         "ultron shutdown", "ultron shut down",
         "ultron stop", "stop ultron",
-        "see you ultron", "go to sleep ultron", "sleep ultron",
+        "see you ultron", "see ya ultron",
+        "go to sleep ultron", "sleep ultron", "ultron sleep",
+        "power down ultron", "power off ultron",
     )
 
     def __init__(

@@ -50,6 +50,49 @@ logger = logging.getLogger("ultron.voice.tts")
 _SENTENCE_END = re.compile(r'[.!?][\'")\]]*(?=\s|$)')
 
 
+# Markdown / code-fence / bullet artefacts that LLMs sprinkle through
+# their answers and that every TTS engine reads literally ("asterisks",
+# "underscore underscore"). Stripped just before synthesis.
+_MD_CODE_FENCE = re.compile(r"```[\s\S]*?```")           # fenced code blocks
+_MD_INLINE_CODE = re.compile(r"`([^`]+)`")               # `inline`
+_MD_BOLD_ITALIC = re.compile(r"(\*\*|__|\*|_)([^*_\n]+)\1")
+_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")          # [text](url)
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
+_MD_HEADER = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_BULLET = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
+_MD_NUMBERED = re.compile(r"^\s*\d+\.\s+", re.MULTILINE)
+_MD_BLOCKQUOTE = re.compile(r"^\s*>\s?", re.MULTILINE)
+# Any leftover lone emphasis chars that survived the paired patterns
+# (e.g., a stray "*" from a sentence like "important*").
+_MD_LEFTOVER_EMPHASIS = re.compile(r"[*_~`]+")
+_MULTI_NEWLINE = re.compile(r"\n{2,}")
+
+
+def sanitize_for_tts(text: str) -> str:
+    """Strip markdown chrome so TTS doesn't read 'asterisks' / 'underscore'.
+
+    Preserves the *content* inside formatting (we keep "important" and
+    drop the surrounding ``**``). Code blocks are removed entirely —
+    reading code aloud is useless.
+    """
+    if not text:
+        return text
+    out = _MD_CODE_FENCE.sub(" ", text)
+    out = _MD_IMAGE.sub(r"\1", out)
+    out = _MD_LINK.sub(r"\1", out)
+    out = _MD_INLINE_CODE.sub(r"\1", out)
+    # Apply the bold/italic regex twice — handles nested `**_word_**`.
+    out = _MD_BOLD_ITALIC.sub(r"\2", out)
+    out = _MD_BOLD_ITALIC.sub(r"\2", out)
+    out = _MD_HEADER.sub("", out)
+    out = _MD_BULLET.sub("", out)
+    out = _MD_NUMBERED.sub("", out)
+    out = _MD_BLOCKQUOTE.sub("", out)
+    out = _MD_LEFTOVER_EMPHASIS.sub("", out)
+    out = _MULTI_NEWLINE.sub("\n", out)
+    return out.strip()
+
+
 class TTSError(Exception):
     """Raised internally by backends; never propagated to callers of synthesize()."""
 
@@ -107,8 +150,11 @@ class TTSEngine:
         The caller can disambiguate by checking the magic bytes (``RIFF``
         for WAV) — or use the convenience helper :meth:`format_of` below.
         Empty input returns empty bytes immediately.
+
+        Input is run through ``sanitize_for_tts`` so markdown emphasis,
+        code fences, and bullet markers don't end up spoken aloud.
         """
-        text = text.strip() if text else ""
+        text = sanitize_for_tts(text.strip()) if text else ""
         if not text:
             return b""
 
