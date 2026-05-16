@@ -128,7 +128,7 @@ impl TensionTracker {
         let idle_secs = g.last_input.elapsed().as_secs_f32();
         let idle_pull = clamp01(idle_secs / 60.0); // pulls tension DOWN
 
-        let cfg = g.cfg;
+        let cfg = g.cfg.clone();
         let target = clamp01(
             cfg.w_typing_volatility * typing_volatility
                 + cfg.w_click_rate * click_rate
