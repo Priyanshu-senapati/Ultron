@@ -19,7 +19,72 @@ from .client_ollama import OllamaClient
 from .config import LLMConfig
 from .context import ContextAssembler
 from .conversation import ConversationHistory
+from .intent_router import route as intent_route
 from .personality import Shard, select_shard
+
+import re as _re
+
+
+# Patterns the local LLM keeps emitting against explicit prompt rules.
+# Stripped before the response leaves the service — TTS and HUD never
+# see them. Each is conservative: removes the offending fragment and
+# any trailing comma/whitespace, leaves the rest of the sentence alone.
+
+# "Commander Priyanshu" / "Sir Priyanshu" / variants. We replace the
+# whole "<rank> <name>" with just the rank — the persona allows
+# "Commander," / "Sir," but never "Commander Priyanshu".
+_NAME_AFTER_TITLE = _re.compile(
+    r"\b(sir|commander|chief|boss|captain)\s+([A-Z][a-zA-Z]+)",
+)
+
+# Surveillance preambles. Anchored to start-of-response or after a
+# sentence break so we don't nuke a mid-sentence "I see…".
+_SURVEILLANCE_PREAMBLES = [
+    _re.compile(
+        r"^(?:I\s+see\s+(?:that\s+)?|I\s+notice\s+(?:that\s+)?|"
+        r"I\s+can\s+see\s+(?:that\s+)?|"
+        r"Given\s+(?:that\s+)?your\s+current\s+state[,.]?\s*|"
+        r"Based\s+on\s+your\s+(?:current\s+)?(?:state|context|telemetry|snapshot)[,.]?\s*|"
+        r"Considering\s+your\s+(?:current\s+)?(?:state|request|context)[,.]?\s*|"
+        r"(?:The\s+)?Claude\s+(?:Code\s+)?session\s+data\s+[^.]*\.\s*)",
+        _re.IGNORECASE),
+]
+
+
+def _sanitize_persona(text: str, user_first_name: str) -> str:
+    """Strip "Commander <FirstName>" + surveillance preambles + leading
+    sycophantic boilerplate the local model loves to emit."""
+    if not text:
+        return text
+    out = text
+
+    # Strip "Commander Priyanshu" → "Commander". Defensive against any
+    # first name the user might have configured.
+    first = (user_first_name or "").strip()
+    if first:
+        out = _re.sub(
+            rf"\b(sir|commander|chief|boss|captain)\s+{_re.escape(first)}\b",
+            r"\1",
+            out,
+            flags=_re.IGNORECASE,
+        )
+    # Generic catch — anything that looks like "<title> <Capitalised>".
+    # Skip common name-like words that follow titles legitimately.
+    out = _NAME_AFTER_TITLE.sub(r"\1", out)
+
+    # Trim surveillance preambles from the very start of the response.
+    # Iterate until no more leading matches remain.
+    for _ in range(3):
+        before = out
+        for pat in _SURVEILLANCE_PREAMBLES:
+            out = pat.sub("", out, count=1).lstrip()
+        if out == before:
+            break
+    # Capitalise the new leading character if we ate a preamble.
+    out = out.strip()
+    if out and out[0].islower():
+        out = out[0].upper() + out[1:]
+    return out
 from .preference import PreferenceEngine, _load_band
 from .state import LiveState
 from .tool_parser import ToolCall, parse_tool_calls, strip_tool_calls
@@ -93,6 +158,24 @@ class LLMService:
         """
         # Notify preference engine of incoming message before mutating history.
         self._preference.on_user_message(prompt)
+
+        # Hard intent router — the local model is unreliable at the
+        # tool-call protocol and leaks persona violations even with
+        # explicit rules. For unambiguous verbs ("play X", "open X",
+        # "search X", "brightness N", "pause / next / mute") we bypass
+        # the LLM entirely and dispatch the tool deterministically.
+        intent = intent_route(prompt)
+        if intent is not None:
+            tool_call = ToolCall(
+                name=intent.tool_name, args=intent.args,
+                raw=f"intent-router:{intent.tool_name}",
+            )
+            self._history.add_user(prompt)
+            self._history.add_assistant(intent.reply)
+            await self._publish_tool_calls([tool_call])
+            if intent.reply:
+                await self._publish_response(intent.reply, shard="intent")
+            return intent.reply
 
         # Visual question? Take a screenshot now and route through the
         # vision model. Real-time sight grounded in actual pixels.
@@ -326,13 +409,13 @@ class LLMService:
         return 4096
 
     def _post_process(self, response: str, shard: str, elapsed: float) -> str:
-        """Strip tool call blocks, log, record preference signal."""
+        """Strip tool call blocks, sanitize persona violations, log."""
         tool_calls = parse_tool_calls(response)
         if tool_calls:
             logger.info("tool calls found: %s", [t.name for t in tool_calls])
-            # Publish tool calls to bus for E (Tool Registry) to pick up.
             asyncio.ensure_future(self._publish_tool_calls(tool_calls))
         clean = strip_tool_calls(response)
+        clean = _sanitize_persona(clean, self._user_name())
         self._preference.on_response(shard, self._state.cognitive_load, clean)
         if elapsed > 0:
             logger.debug(
@@ -340,6 +423,9 @@ class LLMService:
                 elapsed, shard, len(clean.split()),
             )
         return clean
+
+    def _user_name(self) -> str:
+        return (self._cfg.user_name or "").strip()
 
     async def _visual_answer(self, prompt: str, mode: str) -> Optional[str]:
         """Capture screen + ask LLaVA. Returns None on any failure so the
