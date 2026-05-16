@@ -62,3 +62,6 @@ build/
 
 # Claude Code per-project state (settings.local.json may have user paths).
 .claude/
+
+# Runtime-generated ULTRON-to-Claude feed — daily failure log, not source.
+.ultron-feed/
