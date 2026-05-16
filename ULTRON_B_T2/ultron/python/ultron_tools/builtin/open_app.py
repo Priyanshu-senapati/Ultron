@@ -132,8 +132,12 @@ def build(config: ToolsConfig) -> Tool:
             return {"ok": False, "reason": f"launch failed: {exc}"}
         return {"ok": True, "name": name, "target": target}
 
-    confirm_required = True
-    confirm_reason = "Launching an application is a state mutation."
+    # open_app is invoked by explicit user command ("open Spotify") —
+    # the request IS the consent. Adding a confirm prompt here would
+    # make every "open X" voice command take an extra round-trip. If
+    # the user wants the safety net back, they can put "open_app" in
+    # [tools].confirm_required_tools in config.toml — the registry
+    # honours that as an additive override.
     return Tool(
         name="open_app",
         description=(
@@ -143,8 +147,7 @@ def build(config: ToolsConfig) -> Tool:
             "(URI schemes, registered apps, absolute paths)."
         ),
         category="system",
-        confirm_required=confirm_required,
-        confirm_reason=confirm_reason,
+        confirm_required=False,
         args_schema={
             "type": "object",
             "properties": {

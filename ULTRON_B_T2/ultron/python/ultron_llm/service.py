@@ -391,11 +391,25 @@ class LLMService:
             })
 
     async def _publish_tool_calls(self, calls: list[ToolCall]) -> None:
-        if self._bridge:
-            await self._bridge.publish("tool_call_requested", {
-                "calls": [{"name": c.name, "args": c.args} for c in calls],
-                "ts_unix_ms": int(time.time() * 1000),
-            })
+        """Forward parsed tool calls to Module E (tool-service).
+
+        Module E subscribes to ``tool_call_request`` and expects a flat
+        ``{name, args, request_id}`` payload — one event per call. The
+        older bulk ``tool_call_requested`` format (calls=[…]) was never
+        picked up, which is why "open Spotify" silently no-op'd.
+        """
+        if not self._bridge:
+            return
+        for c in calls:
+            request_id = f"llm-{int(time.time()*1000)}-{c.name}"
+            try:
+                await self._bridge.publish("tool_call_request", {
+                    "request_id": request_id,
+                    "name": c.name,
+                    "args": c.args,
+                })
+            except Exception:  # noqa: BLE001
+                logger.exception("tool_call_request publish failed for %s", c.name)
 
     # ── WS event handling ─────────────────────────────────────────────────
 
@@ -430,6 +444,14 @@ class LLMService:
             self._state.update_boot_reflection(payload)
         elif kind == "claude_session_update":
             self._state.update_claude_session(payload)
+        elif kind == "weather_update":
+            self._state.update_weather(payload)
+        elif kind == "stocks_update":
+            self._state.update_stocks(payload)
+        elif kind == "news_update":
+            self._state.update_news(payload)
+        elif kind == "system_info":
+            self._state.update_sysinfo(payload)
 
     async def _handle_voice_transcript(self, payload: dict) -> None:
         text = (payload.get("text") or "").strip()
@@ -470,6 +492,11 @@ class LLMService:
                 "code_change",
                 "boot_reflection",
                 "claude_session_update",
+                # Daily-data + system-info bridges (spectacle HUD work).
+                "weather_update",
+                "stocks_update",
+                "news_update",
+                "system_info",
             ],
             role="llm-client",
         )

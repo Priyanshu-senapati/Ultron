@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import logging
 import sqlite3
+import time
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -105,9 +106,14 @@ class ContextAssembler:
             sel.shard, mode, state.cognitive_load, self._threshold
         )
         if self._user_name:
+            # Don't tell the model to use the name — the persona already
+            # says "sir / commander" without a name. Using both produces
+            # the cringe "Commander Priyanshu" form, which the user
+            # explicitly does not want.
             system_prompt = (
-                f"The user you are addressing is named {self._user_name}. "
-                f"Address them by name when natural.\n\n"
+                f"The user is {self._user_name} (do NOT address them by "
+                f"first name; just 'sir' or 'commander' as the persona "
+                f"prescribes).\n\n"
                 + system_prompt
             )
 
@@ -347,6 +353,64 @@ class ContextAssembler:
                 out.append(
                     f"GitHub (recent): {top.get('summary', '')} on {top.get('repo', '')}"
                 )
+
+        # ── Daily data (weather / stocks / news) ─────────────────────
+        # The user explicitly wants the model to be able to answer
+        # "what's the weather" / "what's the Sensex doing" without saying
+        # it has no access. Include the freshest snapshot in context.
+
+        w = state.weather
+        if w and w.get("available") and (time.monotonic() - state.weather_ts) < 60 * 60:
+            temp = w.get("temp_c")
+            label = w.get("label", "")
+            city = w.get("city", "")
+            high = w.get("high_c")
+            low = w.get("low_c")
+            humid = w.get("humidity")
+            wind = w.get("wind_kmh")
+            line = f"Weather: {temp}°C {label}"
+            if city:
+                line += f" in {city}"
+            extras = []
+            if high is not None and low is not None:
+                extras.append(f"today {round(high)}/{round(low)}°")
+            if humid is not None:
+                extras.append(f"humidity {humid}%")
+            if wind is not None:
+                extras.append(f"wind {wind} km/h")
+            if extras:
+                line += " (" + ", ".join(extras) + ")"
+            out.append(line)
+
+        s = state.stocks
+        if s and (time.monotonic() - state.stocks_ts) < 60 * 60:
+            insight = (s.get("insight") or "").strip()
+            if insight:
+                state_label = "open" if s.get("market_open") else "closed"
+                out.append(f"Markets ({state_label}, IN): {insight}")
+
+        n = state.news
+        if n and (time.monotonic() - state.news_ts) < 30 * 60:
+            heads = [h.get("title", "") for h in (n.get("headlines") or [])][:3]
+            heads = [h for h in heads if h]
+            if heads:
+                out.append("India headlines: " + " | ".join(heads))
+
+        # ── System info (time/battery/wifi/bluetooth) ────────────────
+        si = state.sysinfo
+        if si and (time.monotonic() - state.sysinfo_ts) < 30:
+            bat = si.get("battery") or {}
+            wifi = si.get("wifi") or {}
+            bits = []
+            if bat.get("available"):
+                plug = " plugged" if bat.get("plugged") else ""
+                bits.append(f"battery {bat.get('percent')}%{plug}")
+            if wifi.get("available") and wifi.get("connected"):
+                bits.append(f"wifi {wifi.get('ssid','on')}")
+            elif wifi.get("available"):
+                bits.append("wifi off")
+            if bits:
+                out.append("System: " + ", ".join(bits))
 
         return out
 

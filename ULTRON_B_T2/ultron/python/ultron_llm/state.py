@@ -62,6 +62,18 @@ class LiveState:
     claude_session: dict = field(default_factory=dict)
     claude_session_ts: float = 0.0
 
+    # Daily data + system info bridges (added with the spectacle HUD work).
+    # These let ULTRON actually answer "what's the weather" / "what's the
+    # Sensex doing" without saying it has no access to real-time data.
+    weather: dict = field(default_factory=dict)
+    weather_ts: float = 0.0
+    stocks: dict = field(default_factory=dict)
+    stocks_ts: float = 0.0
+    news: dict = field(default_factory=dict)
+    news_ts: float = 0.0
+    sysinfo: dict = field(default_factory=dict)
+    sysinfo_ts: float = 0.0
+
     def update_snapshot(self, payload: dict) -> None:
         self.snapshot = payload
         self.snapshot_ts = time.monotonic()
@@ -127,6 +139,22 @@ class LiveState:
     def update_claude_session(self, payload: dict) -> None:
         self.claude_session = payload or {}
         self.claude_session_ts = time.monotonic()
+
+    def update_weather(self, payload: dict) -> None:
+        self.weather = payload or {}
+        self.weather_ts = time.monotonic()
+
+    def update_stocks(self, payload: dict) -> None:
+        self.stocks = payload or {}
+        self.stocks_ts = time.monotonic()
+
+    def update_news(self, payload: dict) -> None:
+        self.news = payload or {}
+        self.news_ts = time.monotonic()
+
+    def update_sysinfo(self, payload: dict) -> None:
+        self.sysinfo = payload or {}
+        self.sysinfo_ts = time.monotonic()
 
     # ── convenience accessors ────────────────────────────────────────────
 
