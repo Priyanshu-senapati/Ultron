@@ -164,14 +164,21 @@ class LLMService:
         # explicit rules. For unambiguous verbs ("play X", "open X",
         # "search X", "brightness N", "pause / next / mute") we bypass
         # the LLM entirely and dispatch the tool deterministically.
-        intent = intent_route(prompt)
+        # Pass live state so data-questions ("what's the weather",
+        # "what time is it") can answer straight from cached state
+        # without a round-trip too.
+        intent = intent_route(prompt, self._state)
         if intent is not None:
+            self._history.add_user(prompt)
+            self._history.add_assistant(intent.reply)
+            if intent.is_data_intent:
+                # No tool to call — the reply *is* the answer.
+                await self._publish_response(intent.reply, shard="intent")
+                return intent.reply
             tool_call = ToolCall(
                 name=intent.tool_name, args=intent.args,
                 raw=f"intent-router:{intent.tool_name}",
             )
-            self._history.add_user(prompt)
-            self._history.add_assistant(intent.reply)
             await self._publish_tool_calls([tool_call])
             if intent.reply:
                 await self._publish_response(intent.reply, shard="intent")
@@ -591,4 +598,20 @@ class LLMService:
             self._cfg.ollama_model,
             "configured" if self._claude.is_configured() else "not configured",
         )
+        # Ask the data bridges to republish so our state catches up
+        # immediately on a cold start. Otherwise the first "what's the
+        # weather" misses the cache and falls through to the LLM.
+        async def _kick_refresh() -> None:
+            try:
+                await asyncio.sleep(0.5)  # let the bridge subscribe-ack settle
+                for k in ("weather_request", "stocks_request",
+                          "news_request", "system_info_request"):
+                    try:
+                        await self._bridge.publish(k, {})
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception:  # noqa: BLE001
+                logger.debug("startup refresh kick failed (non-fatal)")
+
+        asyncio.create_task(_kick_refresh())
         await self._bridge.run_forever()

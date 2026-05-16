@@ -236,6 +236,16 @@ class WakeWordListener:
             logger.info(
                 "wake word detected (transcript=%r, query=%r)", text, query
             )
+            # Audible cue the moment we know the wake word fired. The
+            # recording is already finished by this point but the user
+            # has been waiting through silence_timeout + STT — the
+            # rising two-note chime tells them ULTRON has them and is
+            # acting. Fire-and-forget on a thread, never blocks.
+            try:
+                from .chime import play_listen_start
+                play_listen_start(device=self.device)
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 await self.on_wake_word(query)
             except Exception as exc:
