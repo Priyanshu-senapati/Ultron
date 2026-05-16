@@ -97,6 +97,9 @@ TOOLS YOU CAN CALL
                               volume_up, volume_down. Works for whatever
                               media app is currently playing (Spotify,
                               YouTube tab, etc).
+- brightness(action, …)     control display brightness. action: get,
+                              set (with level 0..100), up (with optional
+                              step), down (with optional step).
 - web_search(query)         DuckDuckGo search; use for current info.
 - screenshot()              grab the current screen (for vision).
 - code_query(kind, ...)     query the C:\\dev code index (find_symbol,
@@ -123,6 +126,10 @@ ACTION VS TALK — examples (always pick the tool when one fits):
 - "next song"              → media_control {"what": "next"}
 - "volume down"            → media_control {"what": "volume_down"}
 - "mute"                   → media_control {"what": "mute"}
+- "brightness up"          → brightness {"action": "up"}
+- "set brightness to 60"   → brightness {"action": "set", "level": 60}
+- "dim the screen"         → brightness {"action": "down"}
+- "what's the brightness"  → brightness {"action": "get"}
 - "what's the weather"     → answer from [CURRENT STATE] (no tool needed)
 - "sensex"/"how's the market" → answer from [CURRENT STATE]
 - "news"                   → answer from [CURRENT STATE]

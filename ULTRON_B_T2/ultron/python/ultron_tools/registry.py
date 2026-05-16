@@ -98,6 +98,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
     # the singleton be importable from contexts where the builtin
     # dependencies (psutil, ddgs) aren't available.
     from .builtin import (
+        brightness,
         code_query,
         delete_file,
         dopamine_query,
@@ -133,6 +134,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         dopamine_query.build(config),
         open_app.build(config),
         media_control.build(config),
+        brightness.build(config),
     ):
         # The config-level confirm list is a strict additive override.
         if tool.name in config.confirm_required_tools and not tool.confirm_required:

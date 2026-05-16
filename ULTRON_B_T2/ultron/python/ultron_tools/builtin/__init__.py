@@ -6,6 +6,7 @@ used by ``registry.register_builtin_tools``.
 from __future__ import annotations
 
 from . import (
+    brightness,
     code_query,
     delete_file,
     dopamine_query,
@@ -25,6 +26,7 @@ from . import (
 )
 
 __all__ = [
+    "brightness",
     "code_query",
     "delete_file",
     "dopamine_query",
