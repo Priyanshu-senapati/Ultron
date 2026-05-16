@@ -85,7 +85,14 @@ class VoiceConfig:
     # of a spoken utterance; the rest of the utterance is sent as the query.
     # Empty list = wake word disabled.
     wake_words: list[str] = field(default_factory=lambda: ["hey ultron", "hey altron"])
-    wake_segment_max_secs: int = 8
+    # Used to be 8 — that's the wake phrase (~2s) plus only ~5s for the
+    # actual command before the segment cut. Long enough for short
+    # commands ("open Spotify") but every command with a thinking
+    # pause ("Hey Ultron … [pause] … remind me to call Aman tonight")
+    # got cut. 60s gives you the same headroom as the hotkey path;
+    # the silence_timeout_ms still ends the recording as soon as you
+    # actually stop speaking.
+    wake_segment_max_secs: int = 60
     enable_wake_word: bool = True
     # After ULTRON finishes speaking, suppress the wake listener for this
     # many seconds. Stops it from transcribing speaker leakage or the user's
