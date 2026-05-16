@@ -112,6 +112,8 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         read_file,
         screenshot,
         shell,
+        spotify_play,
+        web_open,
         web_search,
         wellness_query,
         write_file,
@@ -135,6 +137,8 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         open_app.build(config),
         media_control.build(config),
         brightness.build(config),
+        web_open.build(config),
+        spotify_play.build(config),
     ):
         # The config-level confirm list is a strict additive override.
         if tool.name in config.confirm_required_tools and not tool.confirm_required:

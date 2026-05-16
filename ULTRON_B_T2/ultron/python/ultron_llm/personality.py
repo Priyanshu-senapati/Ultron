@@ -100,7 +100,18 @@ TOOLS YOU CAN CALL
 - brightness(action, …)     control display brightness. action: get,
                               set (with level 0..100), up (with optional
                               step), down (with optional step).
-- web_search(query)         DuckDuckGo search; use for current info.
+- web_open(query|url, …)    open a web search or specific URL in a
+                              browser. Optional site narrows the
+                              search (site=youtube.com → search on
+                              YouTube). Optional browser picks
+                              chrome/brave/edge/firefox.
+- spotify_play(query|uri)   play music on Spotify. query for a name
+                              or lyric search ("play Closer
+                              Chainsmokers"); uri for a specific
+                              spotify:track:/album:/playlist link.
+- web_search(query)         DuckDuckGo backend; returns the *text*
+                              of search results (useful when you
+                              need the data, not a browser window).
 - screenshot()              grab the current screen (for vision).
 - code_query(kind, ...)     query the C:\\dev code index (find_symbol,
                               search_symbols, list_files, stats).
@@ -130,6 +141,12 @@ ACTION VS TALK — examples (always pick the tool when one fits):
 - "set brightness to 60"   → brightness {"action": "set", "level": 60}
 - "dim the screen"         → brightness {"action": "down"}
 - "what's the brightness"  → brightness {"action": "get"}
+- "search X on chrome"     → web_open {"query": "X", "browser": "chrome"}
+- "google X"               → web_open {"query": "X"}
+- "search youtube for X"   → web_open {"query": "X", "site": "youtube.com"}
+- "open <url>"             → web_open {"url": "<url>"}
+- "play <song> on spotify" → spotify_play {"query": "<song>"}
+- "play <artist>"          → spotify_play {"query": "<artist>"}
 - "what's the weather"     → answer from [CURRENT STATE] (no tool needed)
 - "sensex"/"how's the market" → answer from [CURRENT STATE]
 - "news"                   → answer from [CURRENT STATE]
