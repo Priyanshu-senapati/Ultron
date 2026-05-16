@@ -86,7 +86,8 @@ def _resolve_target(name: str, aliases: dict[str, str]) -> str:
 def _is_safe_target(target: str) -> tuple[bool, str]:
     """Reject obviously dangerous shell sequences. We pass `target`
     as a *single argument* to start, but defence in depth — refuse
-    embedded operators outright."""
+    embedded operators outright. AppsFolder paths are allowed even
+    though they contain backslashes / exclamation marks."""
     bad = ("&", "|", ";", "$(", "`", "\n", "\r")
     for b in bad:
         if b in target:
@@ -94,13 +95,72 @@ def _is_safe_target(target: str) -> tuple[bool, str]:
     return True, ""
 
 
+# Cache for Get-StartApps results. Populated on first launch attempt
+# (Get-StartApps takes 1-2s; we don't want to pay that per call).
+_start_apps_cache: dict[str, str] | None = None
+
+
+def _refresh_start_apps_cache() -> dict[str, str]:
+    """Map lowercase app *display name* → AUMID via Get-StartApps.
+
+    Get-StartApps enumerates every launchable entry on the Start menu
+    — Microsoft Store apps, classic apps, even some web shortcuts. Its
+    AppIDs work as `explorer.exe shell:AppsFolder\\<AppID>` for *any*
+    of them. That single trick unifies launching across app kinds.
+    """
+    global _start_apps_cache
+    out: dict[str, str] = {}
+    if sys.platform != "win32":
+        _start_apps_cache = out
+        return out
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-Command",
+             "Get-StartApps | ForEach-Object { \"$($_.Name)|$($_.AppID)\" }"],
+            capture_output=True, text=True, timeout=8,
+        )
+        for line in (result.stdout or "").splitlines():
+            line = line.strip()
+            if "|" not in line:
+                continue
+            name, _, app_id = line.partition("|")
+            name = name.strip().lower()
+            app_id = app_id.strip()
+            if name and app_id and name not in out:
+                out[name] = app_id
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.warning("Get-StartApps failed: %s", exc)
+    _start_apps_cache = out
+    return out
+
+
+def _appsfolder_for(name: str) -> str | None:
+    """Return ``shell:AppsFolder\\<AppID>`` for ``name`` if installed."""
+    cache = _start_apps_cache if _start_apps_cache is not None else _refresh_start_apps_cache()
+    key = name.strip().lower()
+    # Exact match wins.
+    if key in cache:
+        return f"shell:AppsFolder\\{cache[key]}"
+    # Partial match — pick the shortest display name that contains the
+    # query (so "spotify" matches "Spotify" not "Spotify Web Player").
+    candidates = [n for n in cache if key in n]
+    if candidates:
+        best = min(candidates, key=len)
+        return f"shell:AppsFolder\\{cache[best]}"
+    return None
+
+
 def build(config: ToolsConfig) -> Tool:
     apps_section = _load_apps_section()
     aliases: dict[str, str] = dict(DEFAULT_ALIASES)
-    user_aliases = apps_section.get("aliases") or {}
-    if isinstance(user_aliases, dict):
-        # User-defined wins.
-        aliases.update({str(k).lower(): str(v) for k, v in user_aliases.items()})
+    raw_user_aliases = apps_section.get("aliases") or {}
+    user_aliases: dict[str, str] = {}
+    if isinstance(raw_user_aliases, dict):
+        user_aliases = {str(k).lower(): str(v) for k, v in raw_user_aliases.items()}
+        # Merge into the combined alias map too, so descriptor/output
+        # still mentions everything the user configured.
+        aliases.update(user_aliases)
     auto_launch_raw = apps_section.get("auto_launch") or []
     auto_launch = {str(s).lower() for s in auto_launch_raw} if isinstance(auto_launch_raw, list) else set()
 
@@ -108,16 +168,40 @@ def build(config: ToolsConfig) -> Tool:
         name = str(args.get("name", "")).strip()
         if not name:
             return {"ok": False, "reason": "name is required"}
-        target = _resolve_target(name, aliases)
+
+        # Resolution priority:
+        # 1. User-defined alias (config.toml [apps].aliases) — explicit
+        #    user overrides always win.
+        # 2. Start-menu AppsFolder match — handles Microsoft Store apps
+        #    like Spotify AND classic apps that register themselves on
+        #    the Start menu. This is the most reliable single path.
+        # 3. Built-in default alias (URI schemes for known apps).
+        # 4. Literal name → `cmd /c start`.
+        key = name.strip().lower()
+        user_target = user_aliases.get(key) if isinstance(user_aliases, dict) else None
+        if user_target:
+            target = str(user_target)
+        else:
+            appsfolder = _appsfolder_for(name)
+            if appsfolder is not None:
+                target = appsfolder
+            else:
+                target = _resolve_target(name, aliases)
+
         ok, reason = _is_safe_target(target)
         if not ok:
             return {"ok": False, "reason": reason}
-        # Use cmd /c start so URI schemes (spotify:, mailto:) and
-        # registered app names (code, chrome) both work. start treats
-        # the *first* quoted arg as the window title — passing "" keeps
-        # the actual target intact.
-        cmdline = ["cmd.exe", "/c", "start", "", target]
+
         try:
+            if target.startswith("shell:AppsFolder\\"):
+                # AppsFolder paths only launch via explorer.exe.
+                cmdline = ["explorer.exe", target]
+            else:
+                # Classic path: cmd /c start handles URI schemes,
+                # registered apps, and absolute paths. The "" arg is
+                # the window title placeholder so the actual target
+                # isn't interpreted as one.
+                cmdline = ["cmd.exe", "/c", "start", "", target]
             subprocess.Popen(
                 cmdline,
                 stdout=subprocess.DEVNULL,
@@ -130,7 +214,12 @@ def build(config: ToolsConfig) -> Tool:
         except OSError as exc:
             logger.exception("open_app failed: %s", exc)
             return {"ok": False, "reason": f"launch failed: {exc}"}
-        return {"ok": True, "name": name, "target": target}
+        return {
+            "ok": True,
+            "name": name,
+            "target": target,
+            "via": "appsfolder" if target.startswith("shell:") else "start",
+        }
 
     # open_app is invoked by explicit user command ("open Spotify") —
     # the request IS the consent. Adding a confirm prompt here would
