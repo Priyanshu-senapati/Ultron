@@ -43,11 +43,19 @@ def _get_brightness() -> int | None:
 
 
 def _set_brightness(level: int) -> bool:
+    """Set monitor brightness via WMI.
+
+    Get-CimInstance returns CimInstance objects that don't expose
+    methods directly — you have to use Invoke-CimMethod. The older
+    Get-WmiObject path supports direct method calls but is deprecated
+    in PowerShell 7+. We use Invoke-CimMethod for forward-compat.
+    """
     level = max(0, min(100, int(level)))
     code, _, err = _ps(
         "$ErrorActionPreference='Stop'; "
-        "(Get-CimInstance -Namespace root/WMI -ClassName "
-        f"WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level}) | Out-Null"
+        "Invoke-CimMethod -InputObject (Get-CimInstance -Namespace root/WMI "
+        "-ClassName WmiMonitorBrightnessMethods) "
+        f"-MethodName WmiSetBrightness -Arguments @{{Brightness=[byte]{level};Timeout=[uint32]1}} | Out-Null"
     )
     return code == 0 and not err
 
