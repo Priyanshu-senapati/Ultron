@@ -13,15 +13,26 @@ else:
 
 CASES = [
     # (voice text, expected tool, expected partial args)
+    # Specific song/artist queries reach Spotify search:
     ("play ocean eyes on spotify",   "spotify_play", {"query": "ocean eyes"}),
     ("play pink floyd",              "spotify_play", {"query": "pink floyd"}),
+    # Generic "play music/song/etc." should TOGGLE play, not search:
+    ("play music",                   "media_control",{"what": "play_pause"}),
+    ("play some music",              "media_control",{"what": "play_pause"}),
+    ("play the music",               "media_control",{"what": "play_pause"}),
+    # Verbs with trailing filler ("the music", "please", "song"):
+    ("pause",                        "media_control",{"what": "play_pause"}),
+    ("pause the music",              "media_control",{"what": "play_pause"}),
+    ("stop the music",               "media_control",{"what": "stop"}),
+    ("next song please",             "media_control",{"what": "next"}),
+    ("turn it down",                 "media_control",{"what": "volume_down"}),
+    # App / search / brightness / etc. (regression baseline):
     ("open chrome",                  "open_app",     {"name": "chrome"}),
     ("open spotify",                 "open_app",     {"name": "spotify"}),
     ("search rain in chennai on chrome", "web_open", {"query": "rain in chennai", "browser": "chrome"}),
     ("search rust async on youtube", "web_open",     {"query": "rust async", "site": "youtube.com"}),
     ("set brightness to 40",         "brightness",   {"action": "set", "level": 40}),
     ("dim the screen",               "brightness",   {"action": "down"}),
-    ("pause",                        "media_control",{"what": "play_pause"}),
     ("next song",                    "media_control",{"what": "next"}),
     ("volume up",                    "media_control",{"what": "volume_up"}),
 ]

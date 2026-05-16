@@ -80,7 +80,7 @@ _SEARCH_SITES = {
 
 _MEDIA_VERBS = {
     "pause": "play_pause",
-    "play": None,            # too generic — handled by spotify path
+    "play": "play_pause",     # bare "play" = resume; "play X" goes to spotify
     "resume": "play_pause",
     "next": "next",
     "next song": "next",
@@ -107,12 +107,27 @@ _MEDIA_VERBS = {
 # matters — put narrower patterns above broader ones.
 
 
+_GENERIC_PLAY_TARGETS = {
+    "music", "some music", "a song", "song", "songs", "something",
+    "anything", "tunes", "audio", "the music", "my music",
+}
+
+
 def _intent_spotify_play(m: re.Match[str]) -> IntentMatch:
-    query = m.group("query").strip().rstrip(".!?,")
+    query = m.group("query").strip().rstrip(".!?,").lower()
+    # "play music" / "play some music" / "play a song" — the user wants
+    # *something* to play, not a search for the literal word "music".
+    # That's a media-key play/pause, not a spotify search URI.
+    if query in _GENERIC_PLAY_TARGETS:
+        return IntentMatch(
+            tool_name="media_control",
+            args={"what": "play_pause"},
+            reply="Playing.",
+        )
     return IntentMatch(
         tool_name="spotify_play",
         args={"query": query},
-        reply=f"Playing {query} on Spotify.",
+        reply=f"Playing {query}.",
     )
 
 
@@ -191,15 +206,34 @@ def _intent_brightness_dir(m: re.Match[str]) -> IntentMatch:
     )
 
 
+_MEDIA_REPLIES = {
+    "play_pause": "Done.",       # ambiguous direction — short and neutral
+    "next":       "Next.",
+    "prev":       "Previous.",
+    "stop":       "Stopped.",
+    "mute":       "Muted.",
+    "volume_up":  "Louder.",
+    "volume_down": "Quieter.",
+}
+
+
 def _intent_media(m: re.Match[str]) -> IntentMatch:
     verb = m.group("verb").lower().strip()
     what = _MEDIA_VERBS.get(verb)
     if not what:
         return IntentMatch(tool_name="", args={})
+    # One-word confirmations. Long enough for TTS to be audible but
+    # short enough that the action arrives faster than the words finish.
+    if verb == "pause":
+        reply = "Paused."
+    elif verb in ("play", "resume"):
+        reply = "Playing."
+    else:
+        reply = _MEDIA_REPLIES.get(what, "Done.")
     return IntentMatch(
         tool_name="media_control",
         args={"what": what},
-        reply="",   # silent — the action is its own confirmation
+        reply=reply,
     )
 
 
@@ -249,11 +283,22 @@ _ROUTES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], IntentMatch]]] = 
                             args={"action": "down", "step": 15},
                             reply="Dimming the screen.")),
 
-    # — Media
+    # — Media (anchored on the verb at the *start*; allow trailing
+    # filler like "the music" / "the song" / "please"). NOTE: this
+    # only includes "play" as a bare verb — "play X" already gets
+    # caught by the spotify route above, which redirects generic
+    # targets ("music"/"song"/etc.) back to media_control via
+    # _GENERIC_PLAY_TARGETS. A bare "play" with optional trailing
+    # filler (e.g. "play the music") still routes here.
     (re.compile(
-        r"^(?P<verb>pause|resume|next(?:\s+(?:song|track))?|previous(?:\s+(?:song|track))?|"
-        r"prev|stop|mute|unmute|volume\s+up|louder|turn\s+it\s+up|volume\s+down|"
-        r"quieter|turn\s+it\s+down)$",
+        r"^(?:please\s+)?"
+        r"(?P<verb>play|pause|resume|stop|mute|unmute|"
+        r"next(?:\s+(?:song|track))?|"
+        r"previous(?:\s+(?:song|track))?|prev|"
+        r"volume\s+up|volume\s+down|louder|quieter|"
+        r"turn\s+it\s+up|turn\s+it\s+down)"
+        r"(?:\s+(?:the\s+)?(?:music|song|track|audio|playback|video))?"
+        r"(?:\s+please)?$",
         re.IGNORECASE), _intent_media),
 
     # — Generic "open X" (matches AFTER spotify / url) — last
