@@ -38,10 +38,34 @@ class BridgesService:
         return await ws.publish(kind, payload)
 
     async def _on_event(self, event: dict[str, Any]) -> None:
-        # The bridges sidecar publishes outward; for now it does not
-        # consume events. Bridges that need to react to other events
-        # (e.g. browser_tab triggering a refresh) can override.
-        return
+        """Route an inbound event to every bridge that subscribed to it.
+
+        Bridges declare what they want via ``Bridge.subscribed_kinds``.
+        Errors in one bridge's handler don't affect others.
+        """
+        kind = event.get("kind", "")
+        payload = event.get("payload") or {}
+        if not kind:
+            return
+        for b in self._bridges:
+            if kind in b.subscribed_kinds:
+                try:
+                    await b.on_event(kind, payload)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "bridge %s on_event(%s) failed", b.name, kind,
+                    )
+
+    def _collect_subscribed_kinds(self) -> list[str]:
+        """Union of every bridge's subscribed_kinds, deduped."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for b in self._bridges:
+            for k in b.subscribed_kinds:
+                if k not in seen:
+                    out.append(k)
+                    seen.add(k)
+        return out
 
     async def run(self) -> None:
         """Connect WS, spawn every registered bridge, wait forever."""
@@ -50,11 +74,15 @@ class BridgesService:
                 "bridge.token not set in config.toml — cannot connect to WS"
             )
 
+        subscribe_to = self._collect_subscribed_kinds()
+        if subscribe_to:
+            logger.info("bridges subscribing to inbound kinds: %s",
+                        ", ".join(subscribe_to))
         self._ws = UltronBridge(
             url=self._cfg.ws_url,
             token=self._cfg.ws_token,
             on_event=self._on_event,
-            subscribe_to=[],
+            subscribe_to=subscribe_to,
             role="ultron-bridges",
         )
 

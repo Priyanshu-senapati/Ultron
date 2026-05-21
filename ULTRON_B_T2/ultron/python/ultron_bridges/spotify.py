@@ -47,10 +47,23 @@ logger = logging.getLogger("ultron.bridges.spotify")
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 CURRENTLY_PLAYING_URL = "https://api.spotify.com/v1/me/player/currently-playing"
+DEVICES_URL = "https://api.spotify.com/v1/me/player/devices"
+PLAY_URL = "https://api.spotify.com/v1/me/player/play"
+PAUSE_URL = "https://api.spotify.com/v1/me/player/pause"
+NEXT_URL = "https://api.spotify.com/v1/me/player/next"
+PREV_URL = "https://api.spotify.com/v1/me/player/previous"
+SEEK_URL = "https://api.spotify.com/v1/me/player/seek"
+VOLUME_URL = "https://api.spotify.com/v1/me/player/volume"
+SEARCH_URL = "https://api.spotify.com/v1/search"
 
-# Scopes — read-only. `user-read-playback-state` covers the device too,
-# letting us also tell the user *where* they're listening (phone/desktop).
-SCOPES = "user-read-currently-playing user-read-playback-state"
+# Scopes. user-modify-playback-state is required for next/prev/play/pause/seek/volume
+# and for starting a specific track. Existing tokens without this scope will get
+# 403s on any control call — re-auth required.
+SCOPES = (
+    "user-read-currently-playing "
+    "user-read-playback-state "
+    "user-modify-playback-state"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -226,6 +239,11 @@ async def run_auth_flow(cfg: SpotifyConfig, token_store: TokenStore) -> bool:
 class SpotifyBridge(Bridge):
     name = "spotify"
 
+    # Consume control requests from the bus. Each request carries an
+    # ``action`` string and optional args; we reply with
+    # spotify_control_result {request_id, ok, reason?, ...}.
+    subscribed_kinds = ("spotify_control_request",)
+
     def __init__(
         self,
         publish: BridgePublishFn | None,
@@ -385,6 +403,203 @@ class SpotifyBridge(Bridge):
             "now playing: %s — %s (%s)",
             payload["track"], payload["artist"], "playing" if is_playing else "paused",
         )
+
+
+    # ---- Control surface ------------------------------------------------
+
+    async def _active_device_id(self, client: httpx.AsyncClient,
+                                token: str) -> Optional[str]:
+        """Return the id of the currently-active device, or any device
+        if none is marked active. Returns None if no devices are visible
+        — typical when the Spotify app isn't running anywhere."""
+        try:
+            resp = await client.get(
+                DEVICES_URL,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        except httpx.HTTPError as exc:
+            self.log.debug("devices fetch failed: %s", exc)
+            return None
+        if resp.status_code != 200:
+            return None
+        devices = (resp.json() or {}).get("devices") or []
+        if not devices:
+            return None
+        active = next((d for d in devices if d.get("is_active")), None)
+        return str((active or devices[0]).get("id") or "")
+
+    async def _control_request(self, method: str, url: str, *,
+                               json_body: Optional[dict] = None,
+                               params: Optional[dict] = None) -> tuple[bool, str]:
+        """Issue an authenticated control request to the Spotify Web API.
+
+        Returns (ok, reason). On 403 we surface a re-auth hint because the
+        most common cause is the user-modify-playback-state scope missing
+        from a token granted before this build shipped.
+        """
+        token = await self._access_token()
+        if not token:
+            return False, "no_access_token (re-run python -m ultron_bridges.spotify)"
+        client = await self._ensure_client()
+        # The official Spotify docs require a device_id when no active
+        # device exists, otherwise control endpoints 404.
+        if params is None:
+            params = {}
+        if "device_id" not in params and url != PLAY_URL:
+            dev = await self._active_device_id(client, token)
+            if dev:
+                params["device_id"] = dev
+        if url == PLAY_URL and (json_body is not None) and ("device_id" not in params):
+            dev = await self._active_device_id(client, token)
+            if dev:
+                params["device_id"] = dev
+        try:
+            resp = await client.request(
+                method, url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params or None,
+                json=json_body,
+            )
+        except httpx.HTTPError as exc:
+            return False, f"http_error: {exc}"
+        if 200 <= resp.status_code < 300:
+            return True, ""
+        if resp.status_code == 401:
+            return False, "unauthorized (token expired / revoked)"
+        if resp.status_code == 403:
+            return False, ("forbidden — likely missing user-modify-playback-state "
+                           "scope. Re-run `python -m ultron_bridges.spotify` to "
+                           "re-authorize with the new scope.")
+        if resp.status_code == 404:
+            return False, "no_active_device (open Spotify on a device first)"
+        return False, f"http_{resp.status_code}: {resp.text[:160]}"
+
+    async def control_next(self) -> tuple[bool, str]:
+        return await self._control_request("POST", NEXT_URL)
+
+    async def control_previous(self) -> tuple[bool, str]:
+        return await self._control_request("POST", PREV_URL)
+
+    async def control_pause(self) -> tuple[bool, str]:
+        return await self._control_request("PUT", PAUSE_URL)
+
+    async def control_resume(self) -> tuple[bool, str]:
+        # PUT /me/player/play with empty body = resume current track.
+        return await self._control_request("PUT", PLAY_URL, json_body={})
+
+    async def control_seek(self, position_ms: int) -> tuple[bool, str]:
+        return await self._control_request(
+            "PUT", SEEK_URL, params={"position_ms": int(max(0, position_ms))},
+        )
+
+    async def control_volume(self, percent: int) -> tuple[bool, str]:
+        pct = max(0, min(100, int(percent)))
+        return await self._control_request(
+            "PUT", VOLUME_URL, params={"volume_percent": pct},
+        )
+
+    async def control_play_uri(self, uri: str) -> tuple[bool, str]:
+        """Start a specific track / album / playlist URI."""
+        uri = (uri or "").strip()
+        if not uri.startswith("spotify:"):
+            return False, "uri must start with spotify:"
+        body: dict[str, Any]
+        if uri.startswith(("spotify:album:", "spotify:playlist:",
+                           "spotify:artist:")):
+            body = {"context_uri": uri}
+        else:
+            body = {"uris": [uri]}
+        return await self._control_request("PUT", PLAY_URL, json_body=body)
+
+    async def search_and_play(self, query: str,
+                              kind: str = "track") -> tuple[bool, str, dict[str, Any]]:
+        """Search the Spotify catalog and start the first matching result.
+
+        ``kind`` is one of track / album / playlist / artist. Returns
+        (ok, reason, info) — info includes name + artist + URI for
+        observability so callers can echo what was started.
+        """
+        token = await self._access_token()
+        if not token:
+            return False, "no_access_token", {}
+        client = await self._ensure_client()
+        kind = kind.lower().strip()
+        if kind not in ("track", "album", "playlist", "artist"):
+            return False, f"unknown kind {kind!r}", {}
+        try:
+            resp = await client.get(
+                SEARCH_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"q": query, "type": kind, "limit": 1},
+            )
+        except httpx.HTTPError as exc:
+            return False, f"search_http_error: {exc}", {}
+        if resp.status_code != 200:
+            return False, f"search_http_{resp.status_code}", {}
+        data = resp.json() or {}
+        items = ((data.get(f"{kind}s") or {}).get("items") or [])
+        if not items:
+            return False, "no_results", {}
+        item = items[0]
+        uri = str(item.get("uri") or "")
+        info = {
+            "uri": uri,
+            "name": str(item.get("name") or ""),
+            "artist": ", ".join(a.get("name", "") for a in (item.get("artists") or []))
+                      if kind in ("track", "album") else "",
+            "kind": kind,
+        }
+        ok, reason = await self.control_play_uri(uri)
+        return ok, reason, info
+
+    # ---- Bus inbound dispatch -------------------------------------------
+
+    async def on_event(self, kind: str, payload: dict[str, Any]) -> None:
+        if kind != "spotify_control_request":
+            return
+        action = str(payload.get("action") or "").strip().lower()
+        request_id = str(payload.get("request_id") or "")
+        args = payload.get("args") or {}
+        info: dict[str, Any] = {}
+        reason = ""
+        ok = False
+        try:
+            if action == "next":
+                ok, reason = await self.control_next()
+            elif action in ("prev", "previous"):
+                ok, reason = await self.control_previous()
+            elif action == "pause":
+                ok, reason = await self.control_pause()
+            elif action in ("resume", "play"):
+                ok, reason = await self.control_resume()
+            elif action == "seek":
+                ok, reason = await self.control_seek(int(args.get("position_ms") or 0))
+            elif action == "volume":
+                ok, reason = await self.control_volume(int(args.get("percent") or 50))
+            elif action == "play_uri":
+                ok, reason = await self.control_play_uri(str(args.get("uri") or ""))
+            elif action == "play_query":
+                q = str(args.get("query") or "").strip()
+                k = str(args.get("kind") or "track")
+                if not q:
+                    ok, reason = False, "empty query"
+                else:
+                    ok, reason, info = await self.search_and_play(q, kind=k)
+            else:
+                ok, reason = False, f"unknown action {action!r}"
+        except Exception as exc:  # noqa: BLE001
+            self.log.exception("control %s failed", action)
+            ok, reason = False, f"exception: {exc}"
+        result: dict[str, Any] = {
+            "request_id": request_id,
+            "action": action,
+            "ok": ok,
+        }
+        if reason:
+            result["reason"] = reason
+        if info:
+            result["info"] = info
+        await self.publish("spotify_control_result", result)
 
 
 async def _noop_publish(kind: str, payload: dict[str, Any]) -> bool:

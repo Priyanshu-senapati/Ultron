@@ -28,6 +28,7 @@ RESULT_KINDS: tuple[str, ...] = (
     "kg_query_result",
     "flow_query_result",
     "recall_query_result",
+    "spotify_control_result",
 )
 
 

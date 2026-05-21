@@ -29,6 +29,11 @@ class Bridge(abc.ABC):
     # section name: `[bridges.<name>]` in config.toml.
     name: str = "unnamed"
 
+    # Bus event kinds the bridge wants to consume. The supervisor unions
+    # all subscriptions across bridges and routes inbound events to the
+    # right bridge via `on_event`. Default: outbound-only.
+    subscribed_kinds: tuple[str, ...] = ()
+
     def __init__(self, publish: BridgePublishFn) -> None:
         self._publish = publish
         self._task: Optional[asyncio.Task[None]] = None
@@ -69,6 +74,13 @@ class Bridge(abc.ABC):
         between sleeps or by racing it with ``asyncio.wait``.
         """
         raise NotImplementedError
+
+    async def on_event(self, kind: str, payload: dict[str, Any]) -> None:
+        """Called by the supervisor when an event the bridge subscribed
+        to arrives. Default: no-op. Bridges that want bidirectional
+        control (e.g. Spotify play/pause/next via bus) override this and
+        also set ``subscribed_kinds``."""
+        return
 
     # ---- helpers --------------------------------------------------------
 

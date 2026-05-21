@@ -29,6 +29,7 @@ PROBES = [
     ("readiness","readiness_query_request","readiness_query_result",{"kind": "current"}),
     ("interrupt","interrupt_query_request","interrupt_query_result",{"kind": "today"}),
     ("ctx-pres", "context_packet_request", "context_packet_written",{"reason": "health-check"}),
+    ("recall",   "recall_query_request",   "recall_query_result",   {"kind": "counts"}),
 ]
 
 
@@ -102,6 +103,11 @@ async def main() -> int:
             print(f"  {name:<{width}} : OK  today_count={s.get('count')}")
         elif name == "ctx-pres":
             print(f"  {name:<{width}} : OK  md_chars={r.get('md_chars')} reason={r.get('reason')}")
+        elif name == "recall":
+            c = r.get("counts") or {}
+            print(f"  {name:<{width}} : OK  turns={c.get('turns')} "
+                  f"reflections={c.get('reflections')} facts={c.get('facts')}"
+                  f" conv={r.get('conv_id')}")
 
     if fails:
         print(f"FAIL  no response from: {fails}")

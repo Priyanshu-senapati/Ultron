@@ -92,10 +92,26 @@ _MEDIA_VERBS = {
     "next": "next",
     "next song": "next",
     "next track": "next",
+    "next one": "next",
+    "skip": "next",
+    "skip song": "next",
+    "skip track": "next",
+    "skip this": "next",
+    "skip ahead": "next",
+    "go forward": "next",
+    "forward": "next",
+    "fast forward": "next",
     "previous": "prev",
     "previous song": "prev",
     "previous track": "prev",
+    "previous one": "prev",
     "prev": "prev",
+    "go back": "prev",
+    "back": "prev",
+    "back one": "prev",
+    "last song": "prev",
+    "last track": "prev",
+    "replay": "prev",
     "stop": "stop",
     "mute": "mute",
     "unmute": "mute",
@@ -131,9 +147,13 @@ def _intent_spotify_play(m: re.Match[str]) -> IntentMatch:
             args={"what": "play_pause"},
             reply="Playing.",
         )
+    # Prefer the real Web API path — it actually starts the song
+    # instead of just opening Spotify's search page. spotify_control
+    # falls back with a clear error if the bridge is unauthorized,
+    # which the user will hear and can act on.
     return IntentMatch(
-        tool_name="spotify_play",
-        args={"query": query},
+        tool_name="spotify_control",
+        args={"action": "play_query", "query": query, "kind": "track"},
         reply=f"Playing {query}.",
     )
 
@@ -300,8 +320,11 @@ _ROUTES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], IntentMatch]]] = 
     (re.compile(
         r"^(?:please\s+)?"
         r"(?P<verb>play|pause|resume|stop|mute|unmute|"
-        r"next(?:\s+(?:song|track))?|"
-        r"previous(?:\s+(?:song|track))?|prev|"
+        r"next(?:\s+(?:song|track|one))?|"
+        r"skip(?:\s+(?:song|track|this|ahead))?|"
+        r"(?:fast\s+)?forward|go\s+forward|"
+        r"previous(?:\s+(?:song|track|one))?|prev|"
+        r"go\s+back|back(?:\s+one)?|last\s+(?:song|track)|replay|"
         r"volume\s+up|volume\s+down|louder|quieter|"
         r"turn\s+it\s+up|turn\s+it\s+down)"
         r"(?:\s+(?:the\s+)?(?:music|song|track|audio|playback|video))?"
@@ -353,6 +376,19 @@ _DATA_QUESTION_PATTERNS = {
     "wifi": re.compile(
         r"^(?:wifi(?:\s+status)?|wi[-\s]?fi(?:\s+status)?|"
         r"am\s+i\s+(?:on\s+)?(?:wifi|online)|what\s+network)$",
+        re.IGNORECASE),
+    # "what's playing" / "what song is this" / "what am I listening to"
+    # — answered directly from state.spotify, no LLM hallucination.
+    "now_playing": re.compile(
+        r"^(?:what(?:['’]?s|\s+is)?\s+(?:currently\s+)?playing|"
+        r"what(?:['’]?s)?\s+(?:this\s+)?song(?:\s+(?:called|name))?|"
+        r"what\s+(?:song|track)\s+is\s+(?:this|playing|on)|"
+        r"what\s+am\s+i\s+listening\s+to|"
+        r"what\s+(?:is|are)\s+(?:we|you)\s+playing|"
+        r"now\s+playing|currently\s+playing|"
+        r"name\s+of\s+(?:this|the)\s+song|"
+        r"who\s+(?:sings|sang|is\s+singing)\s+this|"
+        r"who(?:['’]?s|\s+is)?\s+(?:the\s+)?artist)$",
         re.IGNORECASE),
 }
 
@@ -452,6 +488,28 @@ def _data_answer(kind: str, state: Any) -> Optional[str]:
         if not w.get("connected"):
             return "Wifi off."
         return f"Connected to {w.get('ssid', 'wifi')}."
+    if kind == "now_playing":
+        sp = getattr(state, "spotify", None) or {}
+        if not isinstance(sp, dict):
+            return None
+        # Spotify state is empty if the bridge hasn't received a track
+        # yet (token missing, app not playing, bridge disabled). Fall
+        # through to LLM rather than claim nothing's playing — silence
+        # is wrong if Spotify just hasn't told us yet.
+        track = (sp.get("track") or "").strip()
+        if not track and not sp.get("is_playing"):
+            # Truly nothing — bridge said is_playing=False (status 204).
+            if "is_playing" in sp:
+                return "Nothing playing right now, sir."
+            return None
+        artist = (sp.get("artist") or "").strip()
+        is_playing = bool(sp.get("is_playing"))
+        verb = "Playing" if is_playing else "Paused on"
+        if track and artist:
+            return f"{verb} {track} by {artist}."
+        if track:
+            return f"{verb} {track}."
+        return None
     return None
 
 
