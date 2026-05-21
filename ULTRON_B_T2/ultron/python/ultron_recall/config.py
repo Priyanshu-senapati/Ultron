@@ -54,12 +54,21 @@ class RecallConfig:
     # same conversation so the LLM sees enough context to interpret it.
     neighbour_window: int = 1
 
-    # ── Reflections (Phase 2 — schema exists, generator comes later) ─
-    enable_reflections: bool = False
+    # ── Reflections (Phase 2) ─────────────────────────────────────────
+    enable_reflections: bool = True
     reflection_chars: int = 1200
 
-    # ── Fact extraction (Phase 2) ────────────────────────────────────
-    enable_fact_extraction: bool = False
+    # ── Fact extraction (Phase 2) ─────────────────────────────────────
+    enable_fact_extraction: bool = True
+    # First extract pass waits this long after boot so content has time
+    # to accumulate (and the LLM isn't fighting voice for Ollama).
+    extract_first_delay_secs: float = 180.0
+    # How often to attempt an extract pass while running.
+    extract_interval_secs: float = 600.0
+    # Each pass operates on at most this many new turns.
+    extract_max_turns_per_pass: int = 24
+    # Minimum new turns required to bother extracting.
+    extract_min_new_turns: int = 4
 
 
 def load_recall_config(config_path: Path | None = None) -> RecallConfig:
@@ -88,7 +97,11 @@ def load_recall_config(config_path: Path | None = None) -> RecallConfig:
         max_top_k=int(r.get("max_top_k", 30)),
         min_score=float(r.get("min_score", 0.30)),
         neighbour_window=int(r.get("neighbour_window", 1)),
-        enable_reflections=bool(r.get("enable_reflections", False)),
+        enable_reflections=bool(r.get("enable_reflections", True)),
         reflection_chars=int(r.get("reflection_chars", 1200)),
-        enable_fact_extraction=bool(r.get("enable_fact_extraction", False)),
+        enable_fact_extraction=bool(r.get("enable_fact_extraction", True)),
+        extract_first_delay_secs=float(r.get("extract_first_delay_secs", 180.0)),
+        extract_interval_secs=float(r.get("extract_interval_secs", 600.0)),
+        extract_max_turns_per_pass=int(r.get("extract_max_turns_per_pass", 24)),
+        extract_min_new_turns=int(r.get("extract_min_new_turns", 4)),
     )

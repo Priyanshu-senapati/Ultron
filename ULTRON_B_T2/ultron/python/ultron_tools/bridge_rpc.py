@@ -27,6 +27,7 @@ RESULT_KINDS: tuple[str, ...] = (
     "code_query_result",
     "kg_query_result",
     "flow_query_result",
+    "recall_query_result",
 )
 
 

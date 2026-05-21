@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,6 +36,8 @@ from ultron_bridge import UltronBridge
 from ultron_knowledge.embedder import Embedder
 
 from .config import RecallConfig
+from .extractor import FactExtractor
+from .reflector import Reflector
 from .retriever import RecallRetriever
 from .store import RecallStore
 
@@ -62,6 +65,12 @@ class RecallService:
         self._pending: list[_PendingTurn] = []
         self._lock = asyncio.Lock()
         self._flusher_task: Optional[asyncio.Task] = None
+        # Phase 2 background workers. Constructed lazily on first need
+        # so unit tests that don't touch Ollama don't pay the import.
+        self._extractor: Optional[FactExtractor] = None
+        self._reflector: Optional[Reflector] = None
+        self._extractor_task: Optional[asyncio.Task] = None
+        self._reflector_task: Optional[asyncio.Task] = None
 
     @property
     def store(self) -> RecallStore:
@@ -216,8 +225,107 @@ class RecallService:
                 text = str(payload.get("content") or "")
                 if text and self.queue_turn(role=role, content=text):
                     await self.flush_pending()
+            elif kind == "recall_extract_request":
+                asyncio.create_task(self._run_extract_pass())
+            elif kind == "recall_reflect_request":
+                period = str(payload.get("period") or "session")
+                asyncio.create_task(self._run_reflect(period=period,
+                                                      payload=payload))
+            elif kind == "voice_shutdown_initiated":
+                # Reflect the current session before the stack tears down.
+                # Best-effort: if the LLM is slow we may miss it but the
+                # heartbeat reflector will eventually catch up.
+                if self._cfg.enable_reflections:
+                    asyncio.create_task(self._run_reflect(period="session",
+                                                          payload={}))
         except Exception:  # noqa: BLE001
             logger.exception("recall handler failed for kind=%s", kind)
+
+    # ── Phase 2: extractor + reflector orchestration ──────────────────
+
+    def _ollama_url(self) -> str:
+        return os.environ.get("OLLAMA_URL", "http://localhost:11434")
+
+    def _ollama_model(self) -> str:
+        # Read the LLM module's config so we use the same model the rest
+        # of the stack is using. Fall back to the small fast default.
+        try:
+            from ultron_llm.config import load_config as _load_llm
+            return _load_llm().ollama_model
+        except Exception:  # noqa: BLE001
+            return os.environ.get("ULTRON_OLLAMA_MODEL", "llama3.2:3b")
+
+    def _ensure_extractor(self) -> FactExtractor:
+        if self._extractor is None:
+            self._extractor = FactExtractor(
+                self._store,
+                ollama_url=self._ollama_url(),
+                ollama_model=self._ollama_model(),
+            )
+        return self._extractor
+
+    def _ensure_reflector(self) -> Reflector:
+        if self._reflector is None:
+            self._reflector = Reflector(
+                self._store,
+                ollama_url=self._ollama_url(),
+                ollama_model=self._ollama_model(),
+                embedder=self._embedder,
+                max_chars=self._cfg.reflection_chars,
+            )
+        return self._reflector
+
+    async def _run_extract_pass(self) -> dict[str, Any]:
+        if not self._cfg.enable_fact_extraction:
+            return {"skipped": "disabled"}
+        await self.flush_pending()
+        result = await self._ensure_extractor().extract_pass()
+        if self._bridge is not None:
+            try:
+                await self._bridge.publish("facts_extracted", result)
+            except Exception:  # noqa: BLE001
+                logger.exception("facts_extracted publish failed")
+        return result
+
+    async def _run_reflect(self, *, period: str,
+                           payload: dict[str, Any]) -> dict[str, Any]:
+        if not self._cfg.enable_reflections:
+            return {"skipped": "disabled"}
+        await self.flush_pending()
+        ref = self._ensure_reflector()
+        if period == "day":
+            now = time.time()
+            day_end = float(payload.get("day_end_ts") or now)
+            day_start = float(payload.get("day_start_ts")
+                              or (day_end - 86400.0))
+            result = await ref.reflect_day(day_start_ts=day_start,
+                                            day_end_ts=day_end)
+        else:
+            conv_id = str(payload.get("conv_id") or self._conv_id)
+            result = await ref.reflect_session(conv_id=conv_id)
+        if self._bridge is not None:
+            try:
+                await self._bridge.publish("reflection_written", result)
+            except Exception:  # noqa: BLE001
+                logger.exception("reflection_written publish failed")
+        return result
+
+    async def _extract_loop(self) -> None:
+        """Periodic background extraction pass."""
+        if not self._cfg.enable_fact_extraction:
+            return
+        interval = max(60.0, self._cfg.extract_interval_secs)
+        # Wait for some content to accumulate before the first pass.
+        await asyncio.sleep(self._cfg.extract_first_delay_secs)
+        while True:
+            try:
+                await self._run_extract_pass()
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+            except Exception:  # noqa: BLE001
+                logger.exception("extract loop tick failed")
+                await asyncio.sleep(interval)
 
     # ── Background flusher ────────────────────────────────────────────
 
@@ -251,18 +359,27 @@ class RecallService:
                 "llm_response",
                 "recall_query_request",
                 "recall_index_request",
+                "recall_extract_request",
+                "recall_reflect_request",
+                "voice_shutdown_initiated",
             ],
             role="recall",
         )
-        logger.info("RecallService starting — db=%s model=%s conv=%s",
-                    self._cfg.db_path, self._cfg.embedding_model, self._conv_id)
+        logger.info("RecallService starting — db=%s model=%s conv=%s "
+                    "extract=%s reflect=%s",
+                    self._cfg.db_path, self._cfg.embedding_model, self._conv_id,
+                    self._cfg.enable_fact_extraction,
+                    self._cfg.enable_reflections)
         self._flusher_task = asyncio.create_task(self._flush_loop())
+        if self._cfg.enable_fact_extraction:
+            self._extractor_task = asyncio.create_task(self._extract_loop())
         try:
             await self._bridge.run_forever()
         finally:
-            if self._flusher_task is not None:
-                self._flusher_task.cancel()
-            # Best-effort flush on shutdown.
+            for t in (self._flusher_task, self._extractor_task,
+                      self._reflector_task):
+                if t is not None:
+                    t.cancel()
             try:
                 await self.flush_pending()
             except Exception:  # noqa: BLE001

@@ -84,6 +84,7 @@ class ContextAssembler:
         history: list[dict],
         mode: str = "default",
         forced_shard: Optional[str] = None,
+        recall_block: str = "",
     ) -> tuple[str, list[dict], ShardSelection]:
         """
         Returns:
@@ -251,6 +252,11 @@ class ContextAssembler:
         user_content_parts = [context_block]
         if knowledge_block:
             user_content_parts.append(knowledge_block)
+        # Long-term recall block — fetched by the service when the prompt
+        # looks like it references the past, and threaded in here so it
+        # sits adjacent to the user message (least likely to be ignored).
+        if recall_block:
+            user_content_parts.append(recall_block)
         user_content_parts.append(user_message)
         messages.append({
             "role": "user",

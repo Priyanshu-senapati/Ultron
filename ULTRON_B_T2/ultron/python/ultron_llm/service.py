@@ -25,6 +25,27 @@ from .personality import Shard, select_shard
 import re as _re
 
 
+# Heuristic: does the prompt look like it's referencing the past in a
+# way that a last-N-turn window might not cover? If yes, the service
+# kicks off a recall query before invoking the LLM. Cheap regex; if it
+# triggers a false positive the recall block is just an extra ~150 chars
+# of harmless context.
+_PAST_REFERENCE_RE = _re.compile(
+    r"\b(remember|recall|earlier|last\s+(?:time|week|month|day|night|"
+    r"session)|previous|previously|you\s+(?:said|told|mentioned)|"
+    r"we\s+(?:said|discussed|talked|agreed|decided|built|did)|"
+    r"yesterday|the\s+other\s+(?:day|time)|before|ago|"
+    r"what\s+(?:was|did\s+you\s+say)|"
+    r"how\s+did\s+we|where\s+did\s+we|what\s+(?:is\s+)?my\s+"
+    r"(?:dog|cat|kid|partner|wife|husband|son|daughter|friend|name|favourite|favorite))\b",
+    _re.IGNORECASE,
+)
+
+
+def _looks_like_past_reference(prompt: str) -> bool:
+    return bool(_PAST_REFERENCE_RE.search(prompt or ""))
+
+
 # Patterns the local LLM keeps emitting against explicit prompt rules.
 # Stripped before the response leaves the service — TTS and HUD never
 # see them. Each is conservative: removes the offending fragment and
@@ -134,6 +155,12 @@ class LLMService:
             db_path=config.memory_db_path.parent / "preference.db"
         )
         self._bridge: Optional[UltronBridge] = None
+        # Long-term recall integration: when the prompt looks like it
+        # references past context, the service publishes a
+        # recall_query_request and waits on the next recall_query_result
+        # for the prompt block. FIFO queue keeps the future / response
+        # pairing simple (this service handles one prompt at a time).
+        self._recall_waiters: list[asyncio.Future] = []
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -216,12 +243,27 @@ class LLMService:
         if web_results_block:
             effective_prompt = f"{web_results_block}\n\n{prompt}"
 
+        # Long-term recall — only fetch when the prompt looks like it
+        # references the past. Saves an embed + cosine search on every
+        # prompt, while still giving the model memory when it'd otherwise
+        # fail ("what did you say about X", "remember when…", "the thing
+        # we built last week"). The LLM can ALSO call the `recall` tool
+        # itself when it decides it needs to.
+        recall_block = ""
+        if _looks_like_past_reference(prompt):
+            # Tighter timeout on voice — recall taking 2s+ would defeat
+            # the snappy voice latency target.
+            timeout = 1.2 if mode == "voice" else 2.5
+            recall_block = await self._fetch_recall_block(prompt,
+                                                          timeout=timeout)
+
         system_prompt, messages, shard_sel = self._assembler.assemble(
             user_message=effective_prompt,
             state=self._state,
             history=self._history.to_ollama_messages(),
             mode=mode,
             forced_shard=self._state.forced_shard,
+            recall_block=recall_block,
         )
 
         # Add to history now that the assembler has captured the prior state.
@@ -545,6 +587,56 @@ class LLMService:
             self._state.update_news(payload)
         elif kind == "system_info":
             self._state.update_sysinfo(payload)
+        elif kind == "recall_query_result":
+            self._on_recall_result(payload)
+
+    def _on_recall_result(self, payload: dict) -> None:
+        """Wake any pending recall waiter (FIFO).
+
+        The service handles one prompt at a time, so a single global
+        FIFO queue is enough — concurrent recall requests don't happen
+        in practice.
+        """
+        while self._recall_waiters:
+            fut = self._recall_waiters.pop(0)
+            if not fut.done():
+                fut.set_result(payload)
+                return
+
+    async def _fetch_recall_block(self, query: str,
+                                  timeout: float = 2.5) -> str:
+        """Publish a recall_query_request and await the next result.
+
+        Returns the formatted prompt_block string (empty on timeout,
+        missing bridge, or empty result). Single-prompt-at-a-time, so a
+        FIFO waiter queue is enough — no per-request correlation id.
+        """
+        if self._bridge is None:
+            return ""
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        self._recall_waiters.append(fut)
+        try:
+            await self._bridge.publish("recall_query_request", {
+                "kind": "search",
+                "query": query,
+                "top_k": 5,
+                "include_reflections": True,
+                "include_facts": True,
+            })
+            payload = await asyncio.wait_for(fut, timeout=timeout)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+            return ""
+        finally:
+            try:
+                self._recall_waiters.remove(fut)
+            except ValueError:
+                pass
+        block = str(payload.get("prompt_block") or "").strip()
+        if block:
+            logger.info("recall: injected %d chars for prompt %r",
+                        len(block), query[:60])
+        return block
 
     async def _handle_voice_transcript(self, payload: dict) -> None:
         text = (payload.get("text") or "").strip()
@@ -574,6 +666,8 @@ class LLMService:
                 "insight_snapshot",
                 "productivity_prior_update",
                 "patterns_update",
+                # Long-term memory.
+                "recall_query_result",
                 # Integrations sidecar — see ultron_bridges/.
                 "spotify_now_playing",
                 "browser_tab",
