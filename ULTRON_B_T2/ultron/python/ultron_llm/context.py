@@ -58,6 +58,56 @@ def _looks_like_ultron_focus(focus_app: str) -> bool:
     return any(hint in low for hint in _ULTRON_FOCUS_HINTS)
 
 
+# Thresholds at which an emotion reading is worth surfacing. Mirror the
+# defaults in ``ultron_emotion.config.EmotionConfig`` — duplicated here
+# to avoid a hard import dependency from Module C to the emotion package.
+_EMOTION_FRUSTRATION_FLOOR = 0.4
+_EMOTION_NEG_VALENCE_CEIL = -0.4
+_EMOTION_POS_VALENCE_FLOOR = 0.6
+_EMOTION_STALE_SECS = 300.0   # ignore emotion older than 5 minutes
+
+
+def _build_mood_line(state: "LiveState") -> str:
+    """Compose a one-line mood hint for the LLM, or empty string.
+
+    The hint is directive (tells the model how to respond) rather than
+    descriptive ("user feels X") so it actually changes behaviour. We
+    skip injection entirely for neutral / calm baselines — noise.
+    """
+    em = getattr(state, "emotion", None) or {}
+    if not isinstance(em, dict) or not em:
+        return ""
+    if state.emotion_age_secs() > _EMOTION_STALE_SECS:
+        return ""
+    try:
+        valence = float(em.get("valence", 0.0))
+        arousal = float(em.get("arousal", 0.0))
+        frustration = float(em.get("frustration", 0.0))
+    except (TypeError, ValueError):
+        return ""
+    label = em.get("mood_label") or "neutral"
+    # Highest-signal axis wins. Order matters: frustration > low valence
+    # > high valence > tired, because acting on the wrong one is worse
+    # than acting on none.
+    if frustration >= _EMOTION_FRUSTRATION_FLOOR:
+        return (f"[mood: {label}] User shows frustration signals "
+                f"(f={frustration:.2f}). Be concise, no jokes, "
+                f"acknowledge the friction in one phrase, then offer "
+                f"a concrete next step. No surveillance preamble.")
+    if valence <= _EMOTION_NEG_VALENCE_CEIL:
+        return (f"[mood: {label}] User sounds low (v={valence:.2f}). "
+                f"Be warm and gentle, acknowledge the feeling briefly "
+                f"before solving. Avoid relentlessly upbeat tone.")
+    if valence >= _EMOTION_POS_VALENCE_FLOOR and arousal >= 0.4:
+        return (f"[mood: {label}] User sounds energised "
+                f"(v={valence:.2f}, a={arousal:.2f}). Match the pace, "
+                f"reply tight and direct.")
+    if arousal <= 0.2 and valence >= -0.2:
+        # Calm baseline — don't say anything special.
+        return ""
+    return ""
+
+
 class ContextAssembler:
     def __init__(
         self,
@@ -214,6 +264,13 @@ class ContextAssembler:
                     f"{p.summary} (conf {p.confidence:.2f})" for p in relevant[:3]
                 )
             )
+
+        # Emotional context (from ultron_emotion). Only inject a hint
+        # when the signal is significant enough to actually shape the
+        # response — neutral/calm doesn't need a prompt nudge.
+        mood_line = _build_mood_line(state)
+        if mood_line:
+            ctx_lines.append(mood_line)
 
         # Productivity prior for current hour (IST)
         hour = now_local.hour

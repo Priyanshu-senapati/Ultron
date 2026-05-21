@@ -74,6 +74,12 @@ class LiveState:
     sysinfo: dict = field(default_factory=dict)
     sysinfo_ts: float = 0.0
 
+    # Emotional state (valence / arousal / frustration EWMA) from the
+    # ultron_emotion sidecar. Empty until the first emotion_state_changed
+    # event lands.
+    emotion: dict = field(default_factory=dict)
+    emotion_ts: float = 0.0
+
     def update_snapshot(self, payload: dict) -> None:
         self.snapshot = payload
         self.snapshot_ts = time.monotonic()
@@ -155,6 +161,16 @@ class LiveState:
     def update_sysinfo(self, payload: dict) -> None:
         self.sysinfo = payload or {}
         self.sysinfo_ts = time.monotonic()
+
+    def update_emotion(self, payload: dict) -> None:
+        self.emotion = payload or {}
+        self.emotion_ts = time.monotonic()
+
+    # Age helper for context.py to drop stale emotion blocks.
+    def emotion_age_secs(self) -> float:
+        if self.emotion_ts <= 0:
+            return float("inf")
+        return time.monotonic() - self.emotion_ts
 
     # ── convenience accessors ────────────────────────────────────────────
 
