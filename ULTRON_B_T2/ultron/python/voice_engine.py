@@ -197,9 +197,16 @@ class VoiceEngine:
             url=self.cfg.ws_url,
             token=self.cfg.token,
             on_event=self._on_event,
-            subscribe_to=["llm_response", "input_activity"],
+            subscribe_to=["llm_response", "input_activity", "flow_state_changed"],
             role="voice-engine",
         )
+        # Tracks whether the user is currently in a sustained flow
+        # session. Set/cleared by flow_state_changed events. The voice
+        # engine itself only speaks in response to direct user input,
+        # so today there's no spontaneous speech to silence — but the
+        # flag is kept current for any future consumer that wants it,
+        # and for the session-end announcement below.
+        self._flow_active: bool = False
 
         self.state_machine = VoiceStateMachine(bridge=self.bridge, player=self.player)
         self.clap_handler = ClapHandler(
@@ -330,8 +337,9 @@ class VoiceEngine:
             await self._handle_llm_response(payload)
         elif kind == "input_activity":
             await self._handle_input_activity(payload)
-        # Anything else: ignored. We only subscribed to the two above
-        # so this branch shouldn't fire in practice, but defensive.
+        elif kind == "flow_state_changed":
+            await self._handle_flow_state_changed(payload)
+        # Anything else: ignored.
 
     async def _handle_llm_response(self, payload: dict) -> None:
         """Route C's response to whoever's waiting."""
@@ -363,6 +371,39 @@ class VoiceEngine:
             return
         count = int(payload.get("clap_count") or 0)
         await self.clap_handler.on_clap(count)
+
+    async def _handle_flow_state_changed(self, payload: dict) -> None:
+        """Track flow state + announce session end if substantial.
+
+        We deliberately keep this terse: a 1-sentence summary, only
+        when the session was long enough to be worth interrupting for.
+        Short sessions (< 5 min) get logged silently — the HUD still
+        shows them via flow_query.
+        """
+        state = str(payload.get("state") or "")
+        prev = str(payload.get("prev_state") or "")
+        self._flow_active = (state == "active")
+        if state == "broken" and prev == "active":
+            minutes = float(payload.get("duration_minutes") or 0.0)
+            reason = (payload.get("reason") or "").strip()
+            if minutes >= 5.0:
+                # Keep it short so it doesn't disrupt the next task.
+                # Reason translates the regex tag into something
+                # readable; falls back to the raw tag for unknowns.
+                pretty = {
+                    "app_switch": "an app switch",
+                    "idle": "stepping away",
+                    "tension_spike": "rising tension",
+                    "cognitive_overload": "cognitive overload",
+                    "backspace_burst": "getting stuck",
+                    "unproductive_app": "switching apps",
+                    "disengaged": "disengaging",
+                }.get(reason, reason or "a context shift")
+                line = f"Flow session: {int(round(minutes))} minutes, broken by {pretty}."
+                try:
+                    await self._speak_directly(line)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("flow announce failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Hotkey callbacks
