@@ -179,24 +179,55 @@ def _intent_open_app(m: re.Match[str]) -> IntentMatch:
 
 
 def _intent_web_search(m: re.Match[str]) -> IntentMatch:
+    """Route a free-text web query.
+
+    Default: ``find_and_open`` — runs the search server-side, picks the
+    best result, opens that page directly. The user explicitly asked
+    for "the most appropriate page, not a casual search page".
+
+    Carve-outs that still want the search-results PAGE rather than
+    auto-jumping to a hit:
+      - "google X" / "google for X" — user wants the Google page.
+      - "search X on youtube" — YouTube's site search is the destination,
+        not whatever result wins.
+    Carve-outs use the old ``web_open(query=..., site=...)`` path.
+    """
     raw_q = m.group("query").strip().rstrip(".!?,")
-    # Use groupdict().get so missing optional groups (the generic
-    # fallback pattern has no site/browser groups) don't IndexError —
-    # which `route()` silently swallows, falling through to the LLM.
     groups = m.groupdict()
     site_kw = (groups.get("site") or "").strip().lower()
     browser_kw = (groups.get("browser") or "").strip().lower()
-    args: dict[str, Any] = {"query": raw_q}
-    # Resolve site: "on youtube" → site=youtube.com
+
+    # Carve-out 1: site-scoped searches still go to the site's results
+    # page. The user said "on youtube" / "on amazon" for a reason — they
+    # want to scroll a list.
     if site_kw in _SEARCH_SITES and _SEARCH_SITES[site_kw]:
-        args["site"] = _SEARCH_SITES[site_kw]
-        reply = f"Searching {site_kw} for {raw_q}."
-    elif browser_kw and browser_kw in _BROWSER_MENTIONS:
+        args: dict[str, Any] = {"query": raw_q, "site": _SEARCH_SITES[site_kw]}
+        if browser_kw and browser_kw in _BROWSER_MENTIONS:
+            args["browser"] = _BROWSER_MENTIONS[browser_kw]
+        return IntentMatch(
+            tool_name="web_open", args=args,
+            reply=f"Searching {site_kw} for {raw_q}.",
+        )
+
+    # Carve-out 2: literal "google X" — user wants the Google SERP.
+    verb = (m.group(0) or "").lower()
+    if verb.startswith("google "):
+        args = {"query": raw_q}
+        if browser_kw and browser_kw in _BROWSER_MENTIONS:
+            args["browser"] = _BROWSER_MENTIONS[browser_kw]
+        return IntentMatch(
+            tool_name="web_open", args=args,
+            reply=f"Googling {raw_q}.",
+        )
+
+    # Default: jump straight to the best result via find_and_open.
+    args = {"query": raw_q}
+    if browser_kw and browser_kw in _BROWSER_MENTIONS:
         args["browser"] = _BROWSER_MENTIONS[browser_kw]
-        reply = f"Searching {raw_q} on {browser_kw}."
-    else:
-        reply = f"Searching for {raw_q}."
-    return IntentMatch(tool_name="web_open", args=args, reply=reply)
+    return IntentMatch(
+        tool_name="find_and_open", args=args,
+        reply=f"Looking up {raw_q}.",
+    )
 
 
 def _intent_open_url(m: re.Match[str]) -> IntentMatch:
