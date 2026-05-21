@@ -48,6 +48,7 @@ $PyProcs = @(
     @{ Tag = 'kg-service';       Script = "$PY_DIR\kg_service.py" },
     @{ Tag = 'dopamine-service'; Script = "$PY_DIR\dopamine_service.py" },
     @{ Tag = 'flow-service';     Script = "$PY_DIR\flow_service.py" },
+    @{ Tag = 'reentry-service';  Script = "$PY_DIR\reentry_service.py" },
     @{ Tag = 'hud-service';      Script = "$PY_DIR\hud_service.py" },
     @{ Tag = 'sysinfo-service';  Script = "$PY_DIR\sysinfo_service.py" },
     @{ Tag = 'dailydata-service';Script = "$PY_DIR\dailydata_service.py" },

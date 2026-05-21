@@ -197,7 +197,8 @@ class VoiceEngine:
             url=self.cfg.ws_url,
             token=self.cfg.token,
             on_event=self._on_event,
-            subscribe_to=["llm_response", "input_activity", "flow_state_changed"],
+            subscribe_to=["llm_response", "input_activity", "flow_state_changed",
+                          "reentry_brief"],
             role="voice-engine",
         )
         # Tracks whether the user is currently in a sustained flow
@@ -339,6 +340,8 @@ class VoiceEngine:
             await self._handle_input_activity(payload)
         elif kind == "flow_state_changed":
             await self._handle_flow_state_changed(payload)
+        elif kind == "reentry_brief":
+            await self._handle_reentry_brief(payload)
         # Anything else: ignored.
 
     async def _handle_llm_response(self, payload: dict) -> None:
@@ -404,6 +407,26 @@ class VoiceEngine:
                     await self._speak_directly(line)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("flow announce failed: %s", exc)
+
+    async def _handle_reentry_brief(self, payload: dict) -> None:
+        """Speak the re-entry brief composed by the reentry service.
+
+        The reentry service handles all threshold/cooldown gating, so
+        any brief that lands here is meant to be spoken. We refuse only
+        if the voice engine is mid-request (don't talk over the user).
+        """
+        text = (payload.get("text") or "").strip()
+        if not text:
+            return
+        if self.state_machine is not None and self.state_machine.state in (
+            VoiceState.LISTENING, VoiceState.PROCESSING, VoiceState.SPEAKING,
+        ):
+            logger.info("reentry_brief: voice busy, skipping speak")
+            return
+        try:
+            await self._speak_directly(text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reentry brief speak failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Hotkey callbacks
