@@ -554,22 +554,36 @@ class VoiceEngine:
         except Exception as exc:
             logger.warning("farewell playback failed: %s", exc)
 
-        # Spawn a fully detached powershell that waits a beat, then runs
-        # `ultron.ps1 stop`. The wait lets this process finish flushing
-        # logs and audio before the launcher kills it.
+        # Spawn a VISIBLE (minimized) powershell that actually runs
+        # `ultron.ps1 stop`. Previous version used WindowStyle Hidden +
+        # DETACHED_PROCESS, which (a) hid every failure and (b) could
+        # get orphan-killed when our own process exited before the
+        # nested PowerShell started. Going via `cmd /c start /MIN` is
+        # the most reliable detachment Windows offers — the new console
+        # outlives this process, and the user can see in the taskbar
+        # what's happening if anything goes wrong.
         try:
-            stop_cmd = (
-                "Start-Sleep -Milliseconds 800; "
-                "PowerShell -ExecutionPolicy Bypass -File C:\\dev\\ultron.ps1 stop"
+            # `cmd /c start "title" /MIN powershell -File <ps1> stop`
+            # — start fully detaches; /MIN keeps the window out of the
+            # foreground; the nested PowerShell runs the script and
+            # exits when done, closing the window.
+            inner = (
+                "Write-Host 'ULTRON: stopping the stack...' "
+                "-ForegroundColor Cyan; "
+                "Start-Sleep -Milliseconds 1500; "
+                "& 'C:\\dev\\ultron.ps1' stop; "
+                "Write-Host 'ULTRON: stack stopped.' -ForegroundColor Green; "
+                "Start-Sleep -Seconds 3"
             )
-            DETACHED_PROCESS = 0x00000008
-            CREATE_NEW_PROCESS_GROUP = 0x00000200
             subprocess.Popen(
-                ["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", stop_cmd],
-                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
+                ["cmd.exe", "/c", "start", "ULTRON shutdown", "/MIN",
+                 "powershell.exe", "-NoProfile",
+                 "-ExecutionPolicy", "Bypass",
+                 "-Command", inner],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL, close_fds=True,
             )
-            logger.info("ultron.ps1 stop scheduled — exiting")
+            logger.info("ultron.ps1 stop scheduled in a minimized window — exiting")
         except Exception as exc:
             logger.error("failed to schedule stop: %s", exc)
 
