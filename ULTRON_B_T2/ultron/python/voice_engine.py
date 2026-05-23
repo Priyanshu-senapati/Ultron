@@ -68,6 +68,7 @@ from ultron_voice.stt import TranscriptResult, WhisperSTT
 from ultron_voice.tts import TTSEngine
 from ultron_voice.vad import SileroVAD
 from ultron_voice.wake_word import WakeWordListener
+from ultron_voice.openwakeword_listener import OpenWakeWordListener
 
 from ultron_bridge import UltronBridge
 
@@ -102,6 +103,7 @@ class VoiceEngine:
         self.clap_handler: Optional[ClapHandler] = None
         self.hotkey_listener: Optional[HotkeyListener] = None
         self.wake_word_listener: Optional[WakeWordListener] = None
+        self.oww_listener: Optional[OpenWakeWordListener] = None
 
         # Synchronisation for the LLM response wait. Set when a
         # `llm_response` event arrives with non-empty text.
@@ -235,9 +237,81 @@ class VoiceEngine:
             )
             self.hotkey_listener = None
 
-        # Wake-word listener -- separate mic stream that pauses while the
-        # engine is busy. Reuses the already-loaded Whisper model.
-        if self.cfg.enable_wake_word and self.cfg.wake_words and self.stt is not None:
+        # Wake-word listener — two modes:
+        #
+        # 1. "whisper" (default): Whisper-based loop that records short
+        #    segments, transcribes them, and matches wake phrases.
+        #    Handles both wake detection AND shutdown phrases.
+        #
+        # 2. "openwakeword": custom ONNX model for wake detection
+        #    (~80 ms latency, much more reliable when trained on the
+        #    user's voice). The Whisper-based listener STILL runs in
+        #    parallel but with wake matching disabled — it only watches
+        #    for shutdown phrases like "bye ultron".
+        use_oww = (
+            self.cfg.enable_wake_word
+            and self.cfg.wake_engine == "openwakeword"
+        )
+        oww_model_path = self.cfg.wake_model_path
+        if use_oww and not oww_model_path:
+            import os
+            appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+            oww_model_path = os.path.join(
+                appdata, "ULTRON", "wake_models", "hey_ultron.onnx"
+            )
+        if use_oww and not os.path.exists(oww_model_path):
+            logger.warning(
+                "wake_engine=openwakeword but model not found at %s — "
+                "falling back to Whisper-based wake detection",
+                oww_model_path,
+            )
+            use_oww = False
+
+        if use_oww:
+            # Primary: openWakeWord for "hey ultron" detection.
+            try:
+                self.oww_listener = OpenWakeWordListener(
+                    model_path=oww_model_path,
+                    sample_rate=self.cfg.sample_rate,
+                    device=self.cfg.audio_input_device,
+                    threshold=self.cfg.wake_threshold,
+                    patience=self.cfg.wake_patience,
+                    cooldown_secs=self.cfg.post_speak_cooldown_secs,
+                    on_wake_word=self._on_wake_word,
+                    is_busy=self._is_busy,
+                    publish=self.bridge.publish,
+                )
+                self.oww_listener.start()
+                logger.info("openWakeWord listener active (model=%s)", oww_model_path)
+            except Exception as exc:
+                logger.error("openWakeWord listener failed to start (%s)", exc)
+                self.oww_listener = None
+                use_oww = False
+
+            # Secondary: Whisper listener in shutdown-only mode.
+            # Pass an empty wake_words list so _extract_query never
+            # matches, but shutdown-phrase detection still runs.
+            if self.stt is not None:
+                try:
+                    self.wake_word_listener = WakeWordListener(
+                        stt=self.stt,
+                        vad=self.vad,
+                        sample_rate=self.cfg.sample_rate,
+                        segment_max_secs=self.cfg.wake_segment_max_secs,
+                        silence_timeout_ms=self.cfg.silence_timeout_ms,
+                        device=self.cfg.audio_input_device,
+                        wake_words=[],
+                        on_wake_word=self._on_wake_word,
+                        is_busy=self._is_busy,
+                        publish=self.bridge.publish,
+                        on_shutdown_phrase=self._on_shutdown_phrase,
+                    )
+                    self.wake_word_listener.start()
+                except Exception as exc:
+                    logger.error("shutdown-phrase listener failed (%s)", exc)
+
+        if not use_oww and self.cfg.enable_wake_word and self.cfg.wake_words and self.stt is not None:
+            # Whisper-only mode — handles both wake + shutdown.
             try:
                 self.wake_word_listener = WakeWordListener(
                     stt=self.stt,
@@ -257,12 +331,16 @@ class VoiceEngine:
                 logger.error("wake word listener failed to start (%s)", exc)
                 self.wake_word_listener = None
 
+        wake_info = (
+            f"openwakeword ({oww_model_path})" if self.oww_listener
+            else (self.cfg.wake_words if self.wake_word_listener else "[disabled]")
+        )
         logger.info(
-            "voice engine ready: state=%s hotkey=%s tts=%s wake_words=%s",
+            "voice engine ready: state=%s hotkey=%s tts=%s wake=%s",
             self.state_machine.state.value,
             self.cfg.hotkey,
             self.cfg.tts_backend,
-            self.cfg.wake_words if self.wake_word_listener else "[disabled]",
+            wake_info,
         )
         await self.bridge.run_forever()
 
@@ -270,6 +348,8 @@ class VoiceEngine:
         """Graceful shutdown — stop hotkey, cancel any in-flight task."""
         if self.hotkey_listener is not None:
             self.hotkey_listener.stop()
+        if self.oww_listener is not None:
+            await self.oww_listener.stop()
         if self.wake_word_listener is not None:
             await self.wake_word_listener.stop()
         if self._current_request is not None and not self._current_request.done():

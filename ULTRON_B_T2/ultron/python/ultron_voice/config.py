@@ -96,6 +96,20 @@ class VoiceConfig:
     # trailing query, and we forward it straight to the LLM.
     wake_segment_max_secs: int = 3
     enable_wake_word: bool = True
+    # "whisper" = existing Whisper-based wake (works out of the box).
+    # "openwakeword" = custom ONNX model trained by train_wake_model.py.
+    # openWakeWord is faster (~80 ms vs ~300 ms latency) and more reliable
+    # when a custom model is trained on the user's voice.
+    wake_engine: str = "whisper"
+    # Path to the trained .onnx model. Empty = auto-resolve to
+    # %APPDATA%/ULTRON/wake_models/hey_ultron.onnx.
+    wake_model_path: str = ""
+    # openWakeWord score threshold (0-1). Higher = fewer false positives
+    # but may miss quiet utterances. 0.5 is a safe default.
+    wake_threshold: float = 0.5
+    # How many consecutive 80 ms chunks above threshold before firing.
+    # 3 = ~240 ms of sustained high score. Reduces single-frame spikes.
+    wake_patience: int = 3
     # After ULTRON finishes speaking, suppress the wake listener for this
     # many seconds. Stops it from transcribing speaker leakage or the user's
     # immediate follow-up chatter as a new wake-word trigger.
