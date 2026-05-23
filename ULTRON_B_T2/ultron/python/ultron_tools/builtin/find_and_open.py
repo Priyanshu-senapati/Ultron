@@ -14,6 +14,13 @@ Ranking:
   a site (``"wikipedia python decorators"`` → prefer wikipedia.org),
   and penalise low-signal aggregators we'd never recommend
   (pinterest, w3schools-style spam, "answers.com").
+
+Recency cache:
+  Last 5 (query, url, title, host) tuples are kept in-process. Pass
+  ``recall=true`` (or query in {"again", "that again", "open that
+  again", "same as before", "last one", "previous", ...}) to re-launch
+  the most recent destination without re-running the search. Saves a
+  round-trip when the user wants to revisit the same page.
 """
 from __future__ import annotations
 
@@ -21,7 +28,9 @@ import logging
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -100,6 +109,34 @@ _BROWSER_EXE: dict[str, list[str]] = {
         r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
     ],
 }
+
+
+# Module-level recency cache — newest first. Tiny (5 entries) so the
+# user can say "open that again" or "the one before that".
+_RECENT: "deque[dict[str, Any]]" = deque(maxlen=5)
+
+
+# Tokens the user might say to mean "the previous result".
+_RECALL_QUERIES = {
+    "again", "that again", "open that again", "that one again",
+    "same as before", "same one", "last one", "the last one",
+    "previous", "the previous one",
+}
+
+
+def _push_recent(entry: dict[str, Any]) -> None:
+    """Push a fresh hit, deduping by URL so we don't fill the deque with
+    the same destination opened twice in a row."""
+    url = entry.get("url")
+    if not url:
+        return
+    keep = [e for e in _RECENT if e.get("url") != url]
+    _RECENT.clear()
+    _RECENT.append(entry)
+    for e in keep:
+        if len(_RECENT) >= (_RECENT.maxlen or 5):
+            break
+        _RECENT.append(e)
 
 
 def _find_browser(name: str) -> Optional[str]:
@@ -186,14 +223,38 @@ def _launch_url(url: str, browser_name: Optional[str]) -> tuple[bool, str]:
 def build(config: ToolsConfig) -> Tool:
     async def handler(args: dict[str, Any]) -> dict[str, Any]:
         query = str(args.get("query") or "").strip()
+        browser_name = (args.get("browser") or "").strip().lower() or None
+
+        # Recency shortcut: explicit recall=true OR the query reads like
+        # "open that again". Skip the search, relaunch the most recent
+        # destination.
+        wants_recall = (bool(args.get("recall"))
+                        or query.lower() in _RECALL_QUERIES)
+        if wants_recall:
+            if not _RECENT:
+                return {"ok": False,
+                        "reason": "no prior find_and_open destination cached"}
+            entry = _RECENT[0]
+            ok, reason = _launch_url(entry["url"], browser_name)
+            if not ok:
+                return {"ok": False, "reason": reason,
+                        "url": entry["url"]}
+            return {
+                "ok": True,
+                "from_cache": True,
+                "query": entry.get("query"),
+                "url": entry["url"],
+                "title": entry.get("title"),
+                "host": entry.get("host"),
+                "browser": browser_name or "default",
+                "cached_at_ts": entry.get("ts"),
+            }
+
         if not query:
             return {"ok": False, "reason": "query is required"}
         max_consider = max(3, min(int(args.get("max_consider", 8)), 10))
-        browser_name = (args.get("browser") or "").strip().lower() or None
-        # Optional explicit site that overrides the hint heuristic.
         explicit_site = (args.get("site") or "").strip().lower() or None
 
-        # Run the search via the same DDG helper Module C uses.
         from ultron_llm.web_search import search as _ddg_search  # type: ignore[import]
         try:
             results = await _ddg_search(query, max_results=max_consider)
@@ -212,12 +273,17 @@ def build(config: ToolsConfig) -> Tool:
         ok, reason = _launch_url(best["url"], browser_name)
         if not ok:
             return {"ok": False, "reason": reason, "best_url": best["url"]}
+        host = _host_of(best["url"])
+        _push_recent({
+            "query": query, "url": best["url"], "title": best["title"],
+            "host": host, "ts": time.time(),
+        })
         return {
             "ok": True,
             "query": query,
             "url": best["url"],
             "title": best["title"],
-            "host": _host_of(best["url"]),
+            "host": host,
             "site_hint": site_hint,
             "browser": browser_name or "default",
             "considered": len(rows),
@@ -238,20 +304,22 @@ def build(config: ToolsConfig) -> Tool:
             "list of results. Site hints in the query "
             "('wikipedia python decorators', 'github faster-whisper') "
             "bias the ranking toward that domain. Add the explicit site "
-            "arg to force a domain."
+            "arg to force a domain. Pass recall=true (or a query like "
+            "'open that again') to re-launch the previous destination "
+            "without re-running the search."
         ),
         category="internet",
         confirm_required=False,
         args_schema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "minLength": 1, "maxLength": 512},
+                "query": {"type": "string", "maxLength": 512},
                 "site": {"type": "string", "maxLength": 128},
                 "browser": {"type": "string",
                             "enum": ["chrome", "brave", "edge", "firefox"]},
                 "max_consider": {"type": "integer", "minimum": 3, "maximum": 10},
+                "recall": {"type": "boolean"},
             },
-            "required": ["query"],
             "additionalProperties": False,
         },
         handler=handler,

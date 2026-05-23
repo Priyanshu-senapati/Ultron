@@ -410,6 +410,15 @@ _DATA_QUESTION_PATTERNS = {
         re.IGNORECASE),
     # "what's playing" / "what song is this" / "what am I listening to"
     # — answered directly from state.spotify, no LLM hallucination.
+    # "is spotify connected" / "spotify status" / "can you control spotify"
+    # — answers from state.spotify presence + freshness.
+    "spotify_status": re.compile(
+        r"^(?:(?:is\s+)?spotify\s+(?:connected|authorised|authorized|"
+        r"working|set\s+up|setup|hooked\s+up|ready)|"
+        r"spotify\s+status|"
+        r"can\s+you\s+control\s+spotify|"
+        r"do\s+you\s+have\s+(?:control\s+of\s+)?spotify)$",
+        re.IGNORECASE),
     "now_playing": re.compile(
         r"^(?:what(?:['’]?s|\s+is)?\s+(?:currently\s+)?playing|"
         r"what(?:['’]?s)?\s+(?:this\s+)?song(?:\s+(?:called|name))?|"
@@ -519,6 +528,20 @@ def _data_answer(kind: str, state: Any) -> Optional[str]:
         if not w.get("connected"):
             return "Wifi off."
         return f"Connected to {w.get('ssid', 'wifi')}."
+    if kind == "spotify_status":
+        sp = getattr(state, "spotify", None) or {}
+        if not isinstance(sp, dict) or not sp:
+            return ("Spotify bridge is not connected. Set "
+                    "[bridges.spotify] in config.toml and run "
+                    "python minus m ultron underscore bridges dot spotify.")
+        # If we have ANY field, the bridge is alive. is_playing False is fine.
+        if sp.get("is_playing") is None and not sp.get("track"):
+            return "Spotify bridge alive but no track data yet."
+        if sp.get("is_playing"):
+            track = (sp.get("track") or "").strip()
+            return (f"Spotify connected, currently playing {track}."
+                    if track else "Spotify connected and playing.")
+        return "Spotify connected, paused."
     if kind == "now_playing":
         sp = getattr(state, "spotify", None) or {}
         if not isinstance(sp, dict):
