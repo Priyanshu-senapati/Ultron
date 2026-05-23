@@ -54,6 +54,7 @@ $PyProcs = @(
     @{ Tag = 'context-preserver';Script = "$PY_DIR\context_preserver_service.py" },
     @{ Tag = 'recall-service';   Script = "$PY_DIR\recall_service.py" },
     @{ Tag = 'emotion-service';  Script = "$PY_DIR\emotion_service.py" },
+    @{ Tag = 'selftuner-service';Script = "$PY_DIR\selftuner_service.py" },
     @{ Tag = 'hud-service';      Script = "$PY_DIR\hud_service.py" },
     @{ Tag = 'sysinfo-service';  Script = "$PY_DIR\sysinfo_service.py" },
     @{ Tag = 'dailydata-service';Script = "$PY_DIR\dailydata_service.py" },
