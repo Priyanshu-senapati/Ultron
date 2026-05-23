@@ -99,6 +99,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
     # dependencies (psutil, ddgs) aren't available.
     from .builtin import (
         brightness,
+        close_app,
         code_query,
         delete_file,
         dopamine_query,
@@ -142,6 +143,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         flow_query.build(config),
         recall.build(config),
         open_app.build(config),
+        close_app.build(config),
         media_control.build(config),
         brightness.build(config),
         web_open.build(config),
