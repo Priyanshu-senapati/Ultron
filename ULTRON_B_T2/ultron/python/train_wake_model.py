@@ -83,7 +83,7 @@ def _augment(clips: list[np.ndarray], factor: int = 4) -> list[np.ndarray]:
     for clip in clips:
         for _ in range(factor):
             aug = clip.astype(np.float64)
-            # Volume perturbation (0.5x – 1.5x)
+            # Volume perturbation (0.5x - 1.5x)
             aug *= rng.uniform(0.5, 1.5)
             # Time shift (shift up to 10% of clip length)
             shift = rng.integers(-CLIP_SAMPLES // 10, CLIP_SAMPLES // 10)
@@ -232,7 +232,7 @@ def _train_model(pos_features: np.ndarray, neg_features: np.ndarray,
 
         if epoch % 10 == 0 or epoch == 1:
             bar_len = min(40, int(val_acc * 40))
-            bar = "█" * bar_len + "░" * (40 - bar_len)
+            bar = "#" * bar_len + "." * (40 - bar_len)
             print(
                 f"  epoch {epoch:3d}/{epochs}  "
                 f"loss {epoch_loss / n_batches:.4f}  "
@@ -276,32 +276,32 @@ def main() -> None:
 
     print()
     print(f"{BOLD}{CYAN}{'=' * 56}{RESET}")
-    print(f"{BOLD}{CYAN}   ULTRON — Wake-Word Model Trainer{RESET}")
+    print(f"{BOLD}{CYAN}   ULTRON -- Wake-Word Model Trainer{RESET}")
     print(f"{BOLD}{CYAN}{'=' * 56}{RESET}")
     print()
 
-    # ── Load clips ─────────────────────────────────────────────────────
+    # -- Load clips -----------------------------------------------------
     print(f"{BOLD}Loading clips...{RESET}")
     pos_clips = _load_clips(pos_dir)
     neg_clips = _load_clips(neg_dir)
     print(f"  Positive clips:  {GREEN}{len(pos_clips)}{RESET}")
     print(f"  Negative clips:  {YELLOW}{len(neg_clips)}{RESET}")
 
-    # ── Augment positive clips ─────────────────────────────────────────
+    # -- Augment positive clips -----------------------------------------
     print(f"\n{BOLD}Augmenting positive clips (4x)...{RESET}")
     aug_pos = _augment(pos_clips, factor=4)
     all_pos = pos_clips + aug_pos
     print(f"  Augmented total: {GREEN}{len(all_pos)}{RESET}")
 
-    # ── Generate synthetic negatives ───────────────────────────────────
+    # -- Generate synthetic negatives -----------------------------------
     synth_count = max(200, len(all_pos) - len(neg_clips))
     print(f"\n{BOLD}Generating {synth_count} synthetic negatives...{RESET}")
     synth_neg = _generate_synthetic_negatives(synth_count)
     all_neg = neg_clips + synth_neg
     print(f"  Negative total:  {YELLOW}{len(all_neg)}{RESET}")
 
-    # ── Extract features ───────────────────────────────────────────────
-    print(f"\n{BOLD}Extracting features (melspec → embeddings)...{RESET}")
+    # -- Extract features -----------------------------------------------
+    print(f"\n{BOLD}Extracting features (melspec -> embeddings)...{RESET}")
     print(f"  Processing {len(all_pos)} positive clips...")
     pos_features = _compute_features(all_pos)
     print(f"  Processing {len(all_neg)} negative clips...")
@@ -309,16 +309,16 @@ def main() -> None:
     print(f"  Positive features: {pos_features.shape}")
     print(f"  Negative features: {neg_features.shape}")
 
-    # ── Train ──────────────────────────────────────────────────────────
+    # -- Train ----------------------------------------------------------
     print(f"\n{BOLD}Training classifier...{RESET}")
     model = _train_model(pos_features, neg_features, epochs=80)
 
-    # ── Export ──────────────────────────────────────────────────────────
+    # -- Export ----------------------------------------------------------
     model_out_dir.mkdir(parents=True, exist_ok=True)
     out_path = model_out_dir / "hey_ultron.onnx"
     print(f"\n{BOLD}Exporting to ONNX...{RESET}")
     _export_onnx(model, out_path)
-    print(f"  {GREEN}✓ Model saved to {out_path}{RESET}")
+    print(f"  {GREEN}OK Model saved to {out_path}{RESET}")
 
     print()
     print(f"{BOLD}{CYAN}{'=' * 56}{RESET}")
