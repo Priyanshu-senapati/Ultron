@@ -109,12 +109,23 @@ class HUD:
         self.mail_line: str = ""
         self.app_detail_line: str = ""
 
+        # Listening-bar state. When True, the bridges-bar row is taken
+        # over by a big "▶▶▶ LISTENING ▶▶▶" banner with live mic meter,
+        # so the user has unmissable feedback that ULTRON has heard the
+        # wake word and is recording their command. Cleared the moment
+        # we leave LISTENING.
+        self.listening_armed: bool = False
+        self.listening_started_at: float = 0.0
+        self.listening_peak: float = 0.0
+
         # Mic meter state: when True, the most recent log line is a meter
         # that should be overwritten in place. False = clean newline next.
         self._meter_open: bool = False
         # Throttle: only redraw the meter at most every ~80ms even if
         # events arrive faster.
         self._last_meter_at: float = 0.0
+        # Throttle for the listening-banner redraw (separate from meter).
+        self._last_banner_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Layout: pin a status line to the last row using a scroll region
@@ -145,6 +156,15 @@ class HUD:
 
     def draw_bridges(self) -> None:
         cols, rows = term_size()
+
+        # When the wake word has fired and ULTRON is recording the user's
+        # command, the bridges row is taken over by a vivid LISTENING
+        # banner — bridges info would just be noise during that window
+        # and the user needs unmissable feedback that they've been heard.
+        if self.listening_armed:
+            self._draw_listening_banner(cols, rows)
+            return
+
         # Compose slots in priority order; drop trailing slots if we'd
         # exceed the terminal width.
         slots: list[str] = []
@@ -175,6 +195,76 @@ class HUD:
         sys.stdout.write(" " + line)
         sys.stdout.write(RESTORE_CUR)
         sys.stdout.flush()
+
+    def _draw_listening_banner(self, cols: int, rows: int) -> None:
+        """Render a vivid 'ULTRON IS LISTENING' bar with a live mic meter.
+
+        Takes over the bridges-bar slot (rows - 1) while listening_armed
+        is True. Mic peak comes from the most recent voice_mic_level
+        event; elapsed seconds tick from listening_started_at.
+        """
+        elapsed = time.monotonic() - self.listening_started_at if self.listening_started_at else 0.0
+        # The meter sits in the middle of the bar — width scales with
+        # terminal but caps so the bar still has room for the labels.
+        meter_width = max(12, min(40, cols - 50))
+        peak = self.listening_peak
+        # x3 visual gain — voice peaks are typically 0.05 - 0.4.
+        filled = min(meter_width, int(peak * meter_width * 3.0))
+        bar = ("█" * filled).ljust(meter_width, "░")
+        if peak < 0.04:
+            bar_color = DIM
+        elif peak < 0.18:
+            bar_color = YELLOW
+        else:
+            bar_color = GREEN
+        label = f"{BOLD}{YELLOW}▶▶▶ LISTENING{RESET}"
+        hint = f"{DIM}speak now{RESET}"
+        meter = f"{bar_color}{bar}{RESET} {DIM}peak{RESET} {peak:.2f}"
+        timer = f"{DIM}{elapsed:4.1f}s{RESET}"
+        line = f" {label} {DIM}·{RESET} {hint} {DIM}·{RESET} {meter} {DIM}·{RESET} {timer}"
+
+        sys.stdout.write(SAVE_CUR)
+        sys.stdout.write(f"\x1b[{rows - 1};1H")
+        sys.stdout.write(CLEAR_LINE)
+        sys.stdout.write(line)
+        sys.stdout.write(RESTORE_CUR)
+        sys.stdout.flush()
+
+    def update_listening_meter(self, peak: float) -> None:
+        """Bump the listening-banner mic peak and redraw, throttled.
+
+        Called from the voice_mic_level handler so the banner shows live
+        mic activity while listening. No-op if not currently armed.
+        """
+        if not self.listening_armed:
+            return
+        self.listening_peak = max(0.0, min(1.0, peak))
+        now = time.monotonic()
+        # Banner redraw throttle separate from the inline meter — keeps
+        # the pinned bar refreshing at ~12fps without competing for
+        # cursor with scroll-area meter writes.
+        if now - self._last_banner_at < 0.08:
+            return
+        self._last_banner_at = now
+        cols, rows = term_size()
+        self._draw_listening_banner(cols, rows)
+
+    def arm_listening(self) -> None:
+        """Engage the listening banner. Idempotent."""
+        if not self.listening_armed:
+            self.listening_armed = True
+            self.listening_started_at = time.monotonic()
+            self.listening_peak = 0.0
+        self.draw_bridges()
+
+    def disarm_listening(self) -> None:
+        """Tear down the listening banner; restore bridges info."""
+        if not self.listening_armed:
+            return
+        self.listening_armed = False
+        self.listening_peak = 0.0
+        self.listening_started_at = 0.0
+        self.draw_bridges()
 
     # ------------------------------------------------------------------
     # Bottom status bar (pinned)
@@ -308,6 +398,7 @@ async def run() -> None:
                 "voice_mic_level",
                 "llm_response",
                 "wake_listener_heard",
+                "wake_word_armed",
                 "insight_snapshot",
                 "visual_label",
                 # Integrations sidecar
@@ -332,18 +423,36 @@ async def run() -> None:
             p = msg.get("payload") or {}
 
             if kind == "voice_mic_level":
-                # Only show the meter while LISTENING -- otherwise it's
-                # the wake listener's background tap, which would just
-                # be noise on the HUD.
+                peak = float(p.get("peak") or 0.0)
+                # Only show the inline meter while LISTENING -- otherwise
+                # it's the wake listener's background tap, which would
+                # just be noise on the HUD.
                 if hud.state == "listening":
-                    hud.draw_meter(float(p.get("peak") or 0.0))
+                    hud.draw_meter(peak)
+                # Drive the pinned listening banner too. Cheap no-op when
+                # the banner isn't armed.
+                hud.update_listening_meter(peak)
+
+            elif kind == "wake_word_armed":
+                # The instant wake actually matched, before any state
+                # change. Show the banner immediately so the user sees
+                # ULTRON heard them even before recording starts.
+                trans = (p.get("transcript") or "").strip()
+                trailing = (p.get("query") or "").strip()
+                if trailing:
+                    hud.log("WAKE", GREEN, f"{WHITE}{trans!r}{RESET} {DIM}→ trailing: {trailing!r}{RESET}")
+                else:
+                    hud.log("WAKE", GREEN, f"{WHITE}{trans!r}{RESET} {DIM}— awaiting command{RESET}")
+                hud.arm_listening()
 
             elif kind == "wake_listener_heard":
                 text = p.get("text", "")
                 matched = bool(p.get("matched"))
-                if matched:
-                    hud.log("WAKE", GREEN, f"{WHITE}{text!r}{RESET}")
-                else:
+                # Matched is already covered by wake_word_armed; skip the
+                # duplicate log line. Show the negative path only — it
+                # tells the user "I heard something but it wasn't you
+                # calling me", so they know the mic is alive.
+                if not matched:
                     hud.log("HEARD", DIM, f"{WHITE}{text!r}{RESET}")
 
             elif kind == "voice_transcript":
@@ -370,10 +479,18 @@ async def run() -> None:
                     hud.log("IDLE", DIM, f"{reason}")
                 elif to == "listening":
                     hud.log("LISTENING", YELLOW, f"{DIM}({reason}){RESET}")
+                    # Arm the banner if it wasn't already (hotkey path
+                    # doesn't fire wake_word_armed, so this catches it).
+                    hud.arm_listening()
                 elif to == "error":
                     hud.log("ERROR", RED, f"{reason}")
                 else:
                     hud.log("STATE", DIM, f"{frm} -> {to}")
+                # Banner stays through LISTENING and PROCESSING (user
+                # wants to see ULTRON is still on their request); tears
+                # down once we're speaking back, idle, or in error.
+                if to in ("speaking", "idle", "error"):
+                    hud.disarm_listening()
 
             elif kind == "llm_response":
                 text = (p.get("text") or "").strip()

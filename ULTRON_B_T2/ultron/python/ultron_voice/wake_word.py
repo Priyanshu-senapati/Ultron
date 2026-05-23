@@ -58,6 +58,39 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", stripped).strip()
 
 
+# Phonetic variants of "ultron" we accept after a "hey"-like word.
+# Whisper running on CPU with the "base" model regularly mishears
+# "ultron" as the items below. Each entry must be paired with a
+# leading "hey/hi/yo/a" word — that's what makes this a wake phrase
+# instead of a substring grab. (Without the prefix gate, sentences
+# like "you're an ultra fan" would falsely fire.)
+_ULTRON_VARIANTS: tuple[str, ...] = (
+    "ultron", "altron", "ultra", "outrun", "ultraman", "ultraline",
+    "ultranet", "ultran", "altrum", "ultrum", "ultram", "ultro",
+    "all run", "ultra n", "ultraan",
+)
+
+# Words we accept as the "hey" half of the wake phrase. Whisper sometimes
+# transcribes "hey" as bare "ay" / "yo" / "hi". We deliberately exclude
+# the bare "a" — "...so a ultra fan..." would falsely fire under the
+# 25-char prefix anchor in _extract_query.
+_HEY_VARIANTS: tuple[str, ...] = (
+    "hey", "hi", "yo", "ay", "hello",
+)
+
+
+def _build_phonetic_phrases() -> list[str]:
+    """Cross-product of hey-variants × ultron-variants, longest-first.
+
+    Sorting longest-first lets ``find`` prefer "hey ultraman" over the
+    embedded "hey ultra" — important when Whisper expands one word into
+    two (e.g. "ultraman" should match cleanly, not as "ultra" + dangling
+    "man" in the trailing query).
+    """
+    phrases = [f"{h} {u}" for h in _HEY_VARIANTS for u in _ULTRON_VARIANTS]
+    return sorted(phrases, key=lambda p: -len(p))
+
+
 def amplify_to_peak(audio: np.ndarray, target_peak: float = 0.3,
                     max_gain: float = 20.0) -> np.ndarray:
     """Scale a float32 mono buffer toward a target peak amplitude.
@@ -121,12 +154,17 @@ class WakeWordListener:
         self.segment_max_secs = segment_max_secs
         self.silence_timeout_ms = silence_timeout_ms
         self.device = device
-        # Pre-normalise wake words; sort longest-first so multi-word
-        # phrases like "hey ultron" win over the single-word "ultron".
-        self.wake_words = sorted(
-            (_normalise(w) for w in wake_words if w.strip()),
-            key=lambda w: -len(w.split()),
-        )
+        # Pre-normalise wake words; expand with phonetic variants so the
+        # listener tolerates Whisper's homophones for "ultron". Without
+        # this, the user has to enunciate hard or the wake misses.
+        user_norm = [_normalise(w) for w in wake_words if w.strip()]
+        merged: list[str] = list(user_norm)
+        for phrase in _build_phonetic_phrases():
+            if phrase not in merged:
+                merged.append(phrase)
+        # Sort longest-first so multi-word phrases like "hey ultraman"
+        # match before the shorter "hey ultra" embedded inside them.
+        self.wake_words = sorted(merged, key=lambda w: -len(w))
         self.on_wake_word = on_wake_word
         self.is_busy = is_busy
         self.publish = publish
@@ -236,6 +274,21 @@ class WakeWordListener:
             logger.info(
                 "wake word detected (transcript=%r, query=%r)", text, query
             )
+            # Tell the world that ULTRON has been activated. Fires
+            # BEFORE state machine transition + before any chime — this
+            # is the moment HUDs render their "I heard you, speak now"
+            # banner. Distinct from wake_listener_heard (which is per
+            # transcript, matched or not) — wake_word_armed only fires
+            # when wake actually matched.
+            if self.publish is not None:
+                try:
+                    await self.publish("wake_word_armed", {
+                        "transcript": text,
+                        "query": query or "",
+                        "has_trailing_query": bool(query),
+                    })
+                except Exception:
+                    pass
             # Audible cue the moment we know the wake word fired. The
             # recording is already finished by this point but the user
             # has been waiting through silence_timeout + STT — the

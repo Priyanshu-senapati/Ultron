@@ -85,14 +85,16 @@ class VoiceConfig:
     # of a spoken utterance; the rest of the utterance is sent as the query.
     # Empty list = wake word disabled.
     wake_words: list[str] = field(default_factory=lambda: ["hey ultron", "hey altron"])
-    # Used to be 8 — that's the wake phrase (~2s) plus only ~5s for the
-    # actual command before the segment cut. Long enough for short
-    # commands ("open Spotify") but every command with a thinking
-    # pause ("Hey Ultron … [pause] … remind me to call Aman tonight")
-    # got cut. 60s gives you the same headroom as the hotkey path;
-    # the silence_timeout_ms still ends the recording as soon as you
-    # actually stop speaking.
-    wake_segment_max_secs: int = 60
+    # Wake-hunt segments are short on purpose. The user gets feedback the
+    # instant the wake phrase is recognised; the COMMAND that follows is
+    # captured in a fresh recording session driven by the engine
+    # (silence_timeout_ms governs that one). A short cap means a bare
+    # "hey ultron" doesn't wait through a 60s buffer + VAD timeout before
+    # we fire — it caps quickly and processes. Long single-breath
+    # utterances ("hey ultron play music") still work: the wake hunt
+    # captures whatever fits in the cap, the matcher extracts the
+    # trailing query, and we forward it straight to the LLM.
+    wake_segment_max_secs: int = 3
     enable_wake_word: bool = True
     # After ULTRON finishes speaking, suppress the wake listener for this
     # many seconds. Stops it from transcribing speaker leakage or the user's

@@ -184,6 +184,73 @@
     z-index: 0;
   }
   header, main, footer { position: relative; z-index: 1; }
+
+  /* ---- LISTENING overlay -------------------------------------------- */
+  /* Pops up the moment a wake word is heard, hides when ULTRON stops
+     listening. Designed to be impossible to miss: full-width banner
+     overlay across the centre of the screen with a breathing accent
+     glow and live mic-level bar. */
+  .listen-overlay {
+    position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    z-index: 50;
+    display: none;
+    pointer-events: none;
+    text-align: center;
+    background: linear-gradient(180deg,
+      rgba(0,240,255,.02), rgba(0,240,255,.08), rgba(0,240,255,.02));
+    border-top: 1px solid var(--accent-dim);
+    border-bottom: 1px solid var(--accent-dim);
+    padding: 36px 0;
+    box-shadow: 0 0 80px rgba(0,240,255,.18);
+    animation: listen-breathe 1.6s ease-in-out infinite;
+  }
+  .listen-overlay.on { display: block; }
+  .listen-overlay .label {
+    color: var(--accent);
+    font-size: 38px;
+    letter-spacing: .45em;
+    font-weight: 300;
+    text-shadow: 0 0 30px rgba(0,240,255,.55);
+  }
+  .listen-overlay .hint {
+    color: var(--ink-dim);
+    font-size: 13px;
+    letter-spacing: .35em;
+    text-transform: uppercase;
+    margin-top: 10px;
+  }
+  .listen-overlay .meter-wrap {
+    margin: 22px auto 6px;
+    width: 60%;
+    max-width: 600px;
+    height: 8px;
+    border: 1px solid var(--accent-dim);
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(0,180,200,.06);
+  }
+  .listen-overlay .meter-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    box-shadow: 0 0 18px var(--accent);
+    transition: width 80ms linear;
+  }
+  .listen-overlay .heard {
+    color: var(--ink);
+    font-size: 16px;
+    margin-top: 10px;
+    letter-spacing: .04em;
+    min-height: 1.4em;
+  }
+  @keyframes listen-breathe {
+    0%,100% { box-shadow: 0 0 60px rgba(0,240,255,.14); }
+    50%     { box-shadow: 0 0 100px rgba(0,240,255,.28); }
+  }
+  footer .voice-state.listening {
+    color: var(--accent);
+    text-shadow: 0 0 14px var(--accent);
+  }
 </style>
 </head>
 <body>
@@ -269,6 +336,13 @@
   <div>bridge: <span id="conn-state" class="conn-bad">connecting&hellip;</span></div>
 </footer>
 
+<div class="listen-overlay" id="listen-overlay">
+  <div class="label">&#9654;&#9654;&#9654; LISTENING &#9664;&#9664;&#9664;</div>
+  <div class="hint">speak now, sir</div>
+  <div class="meter-wrap"><div class="meter-fill" id="listen-meter"></div></div>
+  <div class="heard" id="listen-heard"></div>
+</div>
+
 <script>
 // Token comes from the URL fragment so it doesn't hit server logs.
 // Launched by spectacle_hud.py: file:///…/index.html#token=<token>
@@ -332,7 +406,8 @@ function connect() {
       ws.send(JSON.stringify({op:"subscribe", kinds:[
         "hud_status_tick","weather_update","news_update","stocks_update",
         "system_info","dopamine_score_update","voice_state_changed",
-        "wake_listener_heard","insight_snapshot","visual_label","focus_app",
+        "wake_listener_heard","wake_word_armed","voice_mic_level",
+        "insight_snapshot","visual_label","focus_app",
         "flow_state_changed","flow_query_result",
       ]}));
       // Kick a tick now.
@@ -377,6 +452,21 @@ function renderActivity() {
       `<span class="when">${a.when}</span><span>${a.label}</span><span class="when">${a.dur||""}</span>`;
     el.appendChild(li);
   }
+}
+
+function showListenOverlay() {
+  const ov = $("listen-overlay");
+  if (!ov) return;
+  ov.classList.add("on");
+  // Reset the meter to zero each time we re-arm.
+  $("listen-meter").style.width = "0%";
+}
+function hideListenOverlay() {
+  const ov = $("listen-overlay");
+  if (!ov) return;
+  ov.classList.remove("on");
+  $("listen-meter").style.width = "0%";
+  $("listen-heard").textContent = "";
 }
 
 function applyFlowState(state, payload) {
@@ -526,11 +616,37 @@ function handle(kind, p) {
     lastTs.score = p.ts;
   }
   else if (kind === "voice_state_changed") {
-    $("voice-state").textContent = p.state || "idle";
-    $("voice-state").className = "voice-state " + (p.state === "listening" ? "listening" : "");
+    const st = p.state || "idle";
+    $("voice-state").textContent = st;
+    $("voice-state").className = "voice-state " + (st === "listening" ? "listening" : "");
+    // The big LISTENING overlay tracks listening state, but only tears
+    // down when we leave it entirely (not on the transient flicker into
+    // processing where the user is still expecting feedback).
+    if (st === "listening") {
+      showListenOverlay();
+    } else if (st === "idle" || st === "error" || st === "speaking") {
+      hideListenOverlay();
+    }
   }
   else if (kind === "flow_state_changed") {
     applyFlowState(p.state, p);
+  }
+  else if (kind === "wake_word_armed") {
+    // Wake matched — show overlay immediately (before state machine
+    // even ticks) so the user sees ULTRON heard them.
+    showListenOverlay();
+    const t = (p.transcript || "").slice(0, 80);
+    if (t) $("listen-heard").textContent = "“" + t + "”";
+  }
+  else if (kind === "voice_mic_level") {
+    // Animate the overlay meter only while it's visible. Peaks are
+    // typically 0.05 – 0.4; gain x3 makes the bar move visibly.
+    const overlay = $("listen-overlay");
+    if (overlay.classList.contains("on")) {
+      const peak = Math.max(0, Math.min(1, Number(p.peak) || 0));
+      const pct = Math.min(100, peak * 300);
+      $("listen-meter").style.width = pct + "%";
+    }
   }
   else if (kind === "wake_listener_heard") {
     $("voice-detail").textContent = p.matched ? "→ " + (p.query || "(wake)")
