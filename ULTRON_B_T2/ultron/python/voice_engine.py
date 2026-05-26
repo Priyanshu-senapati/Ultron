@@ -123,6 +123,11 @@ class VoiceEngine:
         # the wake listener from picking up its own reply as a new wake.
         self._last_speak_end_ts: float = 0.0
 
+        # Guard against double-firing: ignore on_wake_word calls within
+        # 2s of the previous one. The wake listener can occasionally
+        # extract the same phrase from overlapping segments.
+        self._last_wake_ts: float = 0.0
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -555,6 +560,11 @@ class VoiceEngine:
             logger.debug("wake-word fired while state=%s, ignoring",
                          self.state_machine.state.value)
             return
+        now = time.monotonic()
+        if (now - self._last_wake_ts) < 2.0:
+            logger.debug("wake-word suppressed (%.1fs since last)", now - self._last_wake_ts)
+            return
+        self._last_wake_ts = now
 
         query = query.strip()
         if not query:
