@@ -94,7 +94,7 @@ class VoiceConfig:
     # utterances ("hey ultron play music") still work: the wake hunt
     # captures whatever fits in the cap, the matcher extracts the
     # trailing query, and we forward it straight to the LLM.
-    wake_segment_max_secs: int = 3
+    wake_segment_max_secs: int = 5
     enable_wake_word: bool = True
     # "whisper" = existing Whisper-based wake (works out of the box).
     # "openwakeword" = custom ONNX model trained by train_wake_model.py.

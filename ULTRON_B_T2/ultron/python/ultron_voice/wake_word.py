@@ -92,7 +92,7 @@ def _build_phonetic_phrases() -> list[str]:
 
 
 def amplify_to_peak(audio: np.ndarray, target_peak: float = 0.3,
-                    max_gain: float = 20.0) -> np.ndarray:
+                    max_gain: float = 50.0) -> np.ndarray:
     """Scale a float32 mono buffer toward a target peak amplitude.
 
     Whisper transcribes much more reliably when peak >= ~0.1. Windows
@@ -349,10 +349,13 @@ class WakeWordListener:
         chunks: list[np.ndarray] = []
         max_chunks = (self.segment_max_secs * self.sample_rate) // CHUNK_SAMPLES
         silent_run = 0
-        # Without VAD, every recording is "speech" - we can't detect
-        # end-of-speech, so we just cap at segment_max_secs and process
-        # whatever we got. With VAD, this flips True only on detected speech.
-        saw_speech = (self.vad is None)
+        # Always process wake segments regardless of VAD speech detection.
+        # On laptops with quiet mics (peaks 0.005-0.01), VAD never fires,
+        # so saw_speech would stay False and the segment would be silently
+        # dropped — making the wake listener deaf. The amplify_to_peak
+        # step downstream boosts the audio for Whisper; VAD is only used
+        # here to detect end-of-speech for early segment termination.
+        saw_speech = True
 
         try:
             with sd.InputStream(
