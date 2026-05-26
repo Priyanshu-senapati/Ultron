@@ -303,6 +303,11 @@ class WakeWordListener:
                 await self.on_wake_word(query)
             except Exception as exc:
                 logger.error("wake listener: on_wake_word raised: %s", exc)
+            # Post-wake cooldown: give the engine time to transition out
+            # of IDLE so is_busy() gates the next iteration. Without this,
+            # the loop re-enters instantly, records the tail of the same
+            # utterance, and double-fires the wake word.
+            await asyncio.sleep(1.5)
 
     # ------------------------------------------------------------------
     # Wake-word matching
