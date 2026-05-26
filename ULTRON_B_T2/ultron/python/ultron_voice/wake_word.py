@@ -324,17 +324,86 @@ class WakeWordListener:
     def _extract_query(self, transcript: str) -> Optional[str]:
         """Return the post-wake-word query, or None if no wake word."""
         norm = _normalise(transcript)
+        # Pass 1: exact substring match against all wake phrases.
         for ww in self.wake_words:
-            # Match the wake word anywhere up to ~the first 25 chars.
             idx = norm.find(ww)
             if idx == -1 or idx > 25:
                 continue
-            # Map back to original transcript indices roughly: count words.
             words = transcript.split()
             ww_word_count = len(ww.split())
-            # Skip the first N words; whatever comes after is the query.
             remainder = " ".join(words[ww_word_count:]).strip(" ,.;:!?")
             return remainder
+        # Pass 2: fuzzy match. Whisper "base" on CPU mangles "ultron"
+        # into "old son", "Alchon", "old Tom", etc. We check if any
+        # 1-or-2-word window in the first few words is phonetically
+        # close to "ultron" (Levenshtein distance <= 4), preceded by
+        # something that sounds like "hey".
+        result = self._fuzzy_extract(transcript, norm)
+        if result is not None:
+            return result
+        return None
+
+    @staticmethod
+    def _levenshtein(a: str, b: str) -> int:
+        if len(a) < len(b):
+            return WakeWordListener._levenshtein(b, a)
+        if not b:
+            return len(a)
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a):
+            curr = [i + 1]
+            for j, cb in enumerate(b):
+                curr.append(min(
+                    prev[j + 1] + 1,
+                    curr[j] + 1,
+                    prev[j] + (0 if ca == cb else 1),
+                ))
+            prev = curr
+        return prev[-1]
+
+    def _fuzzy_extract(self, transcript: str, norm: str) -> Optional[str]:
+        """Fuzzy wake-word match for Whisper mishearings."""
+        words = norm.split()
+        if len(words) < 1:
+            return None
+        # Only check the first 5 words — wake word must be near the start.
+        check_words = words[:min(5, len(words))]
+        hey_variants = {"hey", "hi", "yo", "ay", "hello", "okay", "ok",
+                        "a", "oi", "hei"}
+        ultron_target = "ultron"
+        max_dist = 4
+
+        for i in range(len(check_words)):
+            # Single word: does it sound like "ultron"?
+            candidate = check_words[i]
+            dist = self._levenshtein(candidate, ultron_target)
+            if dist <= max_dist:
+                # Check if previous word is hey-like.
+                if i > 0 and check_words[i - 1] in hey_variants:
+                    orig_words = transcript.split()
+                    remainder = " ".join(orig_words[i + 1:]).strip(" ,.;:!?")
+                    return remainder
+                # No hey prefix but very close match (dist <= 2) — accept
+                # it anyway (user might have said just "ultron").
+                if dist <= 2:
+                    orig_words = transcript.split()
+                    remainder = " ".join(orig_words[i + 1:]).strip(" ,.;:!?")
+                    return remainder
+
+            # Two-word join: "old son" → "oldson" ≈ "ultron"?
+            if i + 1 < len(check_words):
+                joined = check_words[i] + check_words[i + 1]
+                dist = self._levenshtein(joined, ultron_target)
+                if dist <= max_dist:
+                    if i > 0 and check_words[i - 1] in hey_variants:
+                        orig_words = transcript.split()
+                        remainder = " ".join(orig_words[i + 2:]).strip(" ,.;:!?")
+                        return remainder
+                    if dist <= 2:
+                        orig_words = transcript.split()
+                        remainder = " ".join(orig_words[i + 2:]).strip(" ,.;:!?")
+                        return remainder
+
         return None
 
     # ------------------------------------------------------------------
