@@ -62,6 +62,7 @@ $PyProcs = @(
     @{ Tag = 'claude-feed';      Script = "$PY_DIR\claude_feed_service.py" },
     @{ Tag = 'syshealth-service'; Script = "$PY_DIR\syshealth_service.py" },
     @{ Tag = 'clipboard-service'; Script = "$PY_DIR\clipboard_service.py" },
+    @{ Tag = 'proactive-service'; Script = "$PY_DIR\proactive_service.py" },
     @{ Tag = 'llm-service';      Script = "$PY_DIR\llm_service.py" },
     @{ Tag = 'insight_pulse';    Script = "$PY_DIR\insight_pulse.py" },
     @{ Tag = 'voice_engine';     Script = "$PY_DIR\voice_engine.py" },

@@ -138,6 +138,27 @@ class ToastRouter:
             return ToastSpec(title="Readiness shifted",
                               body=body, footer="ULTRON · readiness")
 
+        if kind == "proactive_suggestion":
+            if not self._throttle_allows("proactive", 1800.0, now):
+                return None
+            suggestion = str(payload.get("suggestion") or "")
+            rule = str(payload.get("rule") or "")
+            return ToastSpec(
+                title="ULTRON",
+                body=suggestion[:200],
+                footer=f"ULTRON - {rule}",
+            )
+
+        if kind == "system_health_alert":
+            if not self._throttle_allows("syshealth_alert", 300.0, now):
+                return None
+            msg = str(payload.get("msg") or "System alert")
+            return ToastSpec(
+                title="System Alert",
+                body=msg,
+                footer="ULTRON - syshealth",
+            )
+
         if kind == "voice_shutdown_initiated" and cfg.enable_voice_shutdown:
             if not self._throttle_allows(
                     "voice_shutdown", cfg.min_interval_voice_shutdown, now):

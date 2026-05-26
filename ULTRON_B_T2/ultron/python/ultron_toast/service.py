@@ -74,6 +74,8 @@ class ToastService:
                 "self_reflection_written",
                 "readiness_score_update",
                 "voice_shutdown_initiated",
+                "proactive_suggestion",
+                "system_health_alert",
             ],
             role="toast",
         )
