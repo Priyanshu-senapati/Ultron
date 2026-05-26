@@ -177,6 +177,17 @@ def _intent_open_app(m: re.Match[str]) -> IntentMatch:
     )
 
 
+def _intent_run_macro(m: re.Match[str]) -> IntentMatch:
+    name = m.group("macro").strip().rstrip(".!?,").lower().replace(" ", "_")
+    if len(name) > 64 or not name:
+        return IntentMatch(tool_name="", args={})
+    return IntentMatch(
+        tool_name="run_macro",
+        args={"name": name},
+        reply=f"Running {name.replace('_', ' ')}.",
+    )
+
+
 def _intent_close_app(m: re.Match[str]) -> IntentMatch:
     name = m.group("app").strip().rstrip(".!?,").lower()
     if len(name) > 64:
@@ -372,6 +383,15 @@ _ROUTES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], IntentMatch]]] = 
         r"(?:\s+(?:the\s+)?(?:music|song|track|audio|playback|video))?"
         r"(?:\s+please)?$",
         re.IGNORECASE), _intent_media),
+
+    # — Macro / routine / mode
+    (re.compile(
+        r"^(?:(?:please\s+)?(?:run|execute|start|activate|switch\s+to|go\s+to)\s+)?"
+        r"(?P<macro>(?:morning|study|gaming|work|night|presentation)"
+        r"(?:\s+(?:routine|mode))?"
+        r"|[\w]+(?:\s+(?:routine|mode)))"
+        r"(?:\s+please)?$",
+        re.IGNORECASE), _intent_run_macro),
 
     # — Close / kill / shut down X
     (re.compile(
