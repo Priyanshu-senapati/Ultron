@@ -461,6 +461,14 @@ _DATA_QUESTION_PATTERNS = {
         r"(?:what(?:['']?s)?\s+(?:my\s+)?(?:cpu|gpu)\s+(?:temp|temperature|usage))|"
         r"thermals|temperatures)$",
         re.IGNORECASE),
+    "clipboard": re.compile(
+        r"^(?:what(?:['']?s)?\s+(?:in\s+(?:my\s+)?)?clipboard|"
+        r"what\s+did\s+i\s+(?:just\s+)?copy|"
+        r"what(?:['']?s)?\s+copied|"
+        r"clipboard(?:\s+content)?|"
+        r"show\s+(?:me\s+)?(?:my\s+)?clipboard|"
+        r"paste\s+(?:what\s+)?i\s+copied)$",
+        re.IGNORECASE),
     "spotify_status": re.compile(
         r"^(?:(?:is\s+)?spotify\s+(?:connected|authorised|authorized|"
         r"working|set\s+up|setup|hooked\s+up|ready)|"
@@ -617,6 +625,25 @@ def _data_answer(kind: str, state: Any) -> Optional[str]:
         if cpu_temp:
             parts.append(f"CPU temperature {cpu_temp:.0f} degrees")
         return ". ".join(parts) + "."
+    if kind == "clipboard":
+        cb = getattr(state, "clipboard", None) or {}
+        if not isinstance(cb, dict) or not cb:
+            return "Nothing in the clipboard yet."
+        content = (cb.get("content") or "").strip()
+        ctype = cb.get("content_type", "text")
+        if not content:
+            return "Clipboard is empty."
+        preview = content[:100]
+        type_label = {
+            "url": "a URL",
+            "email": "an email address",
+            "phone": "a phone number",
+            "code": "some code",
+            "file_path": "a file path",
+            "json": "JSON data",
+            "number": "a number",
+        }.get(ctype, "text")
+        return f"You copied {type_label}: {preview}."
     if kind == "spotify_status":
         sp = getattr(state, "spotify", None) or {}
         if not isinstance(sp, dict) or not sp:

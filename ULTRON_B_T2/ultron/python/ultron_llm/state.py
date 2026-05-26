@@ -166,6 +166,10 @@ class LiveState:
         self.syshealth = payload or {}
         self.syshealth_ts = time.monotonic()
 
+    def update_clipboard(self, payload: dict) -> None:
+        self.clipboard = payload or {}
+        self.clipboard_ts = time.monotonic()
+
     def update_emotion(self, payload: dict) -> None:
         self.emotion = payload or {}
         self.emotion_ts = time.monotonic()

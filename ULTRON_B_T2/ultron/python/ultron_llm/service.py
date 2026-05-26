@@ -589,6 +589,8 @@ class LLMService:
             self._state.update_sysinfo(payload)
         elif kind == "system_health_update":
             self._state.update_syshealth(payload)
+        elif kind == "clipboard_changed":
+            self._state.update_clipboard(payload)
         elif kind == "emotion_state_changed":
             self._state.update_emotion(payload)
         elif kind == "recall_query_result":
@@ -690,6 +692,8 @@ class LLMService:
                 "system_info",
                 # System health monitor.
                 "system_health_update",
+                # Clipboard intelligence.
+                "clipboard_changed",
                 # Emotional intelligence layer.
                 "emotion_state_changed",
             ],
