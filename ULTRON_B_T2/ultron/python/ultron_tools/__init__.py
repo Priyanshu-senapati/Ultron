@@ -48,6 +48,13 @@ def get_service() -> Optional[ToolService]:
     return _service
 
 
+def get_registry() -> Optional[ToolRegistry]:
+    """Return the live ToolRegistry or None if not initialised."""
+    if _service is not None:
+        return _service.registry
+    return None
+
+
 __all__ = [
     "Tool",
     "ToolRegistry",
