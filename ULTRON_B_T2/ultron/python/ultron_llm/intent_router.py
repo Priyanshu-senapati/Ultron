@@ -168,13 +168,24 @@ def _intent_open_spotify_bare(_m: re.Match[str]) -> IntentMatch:
 
 def _intent_open_app(m: re.Match[str]) -> IntentMatch:
     name = m.group("app").strip().rstrip(".!?,").lower()
-    # Reject very long names — likely not an app, fall back to LLM.
     if len(name) > 64:
         return IntentMatch(tool_name="", args={})
     return IntentMatch(
         tool_name="open_app",
         args={"name": name},
         reply=f"Opening {name}.",
+    )
+
+
+def _intent_close_app(m: re.Match[str]) -> IntentMatch:
+    name = m.group("app").strip().rstrip(".!?,").lower()
+    if len(name) > 64:
+        return IntentMatch(tool_name="", args={})
+    force = bool(m.group("force")) if "force" in m.groupdict() else False
+    return IntentMatch(
+        tool_name="close_app",
+        args={"name": name, "force": force},
+        reply=f"Closing {name}.",
     )
 
 
@@ -361,6 +372,13 @@ _ROUTES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], IntentMatch]]] = 
         r"(?:\s+(?:the\s+)?(?:music|song|track|audio|playback|video))?"
         r"(?:\s+please)?$",
         re.IGNORECASE), _intent_media),
+
+    # — Close / kill / shut down X
+    (re.compile(
+        r"^(?:please\s+)?(?P<force>(?:force\s+)?)"
+        r"(?:close|quit|exit|kill|terminate|shut\s*down|end|stop)\s+"
+        r"(?P<app>.+)$",
+        re.IGNORECASE), _intent_close_app),
 
     # — Generic "open X" (matches AFTER spotify / url) — last
     (re.compile(r"^(?:please\s+)?(?:open|launch|start|fire\s+up|run)\s+(?P<app>.+)$",

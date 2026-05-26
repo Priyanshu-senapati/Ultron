@@ -99,6 +99,10 @@ TOOLS YOU CAN CALL
                               terminal, calc, notepad, settings, explorer,
                               discord, obsidian, gmail, youtube, github —
                               or any URI scheme / registered app name.
+- close_app(name, force?)   close/kill a running application by name.
+                              Graceful close by default. Pass force=true
+                              to force-kill. Same names as open_app plus
+                              any running process name.
 - media_control(what)       send a Windows media key. what is one of:
                               play_pause, next, prev, stop, mute,
                               volume_up, volume_down. Works for whatever
@@ -160,6 +164,10 @@ ACTION VS TALK — examples (always pick the tool when one fits):
 - "what time is it"        → answer from [CURRENT STATE]
 - "what was I doing at 3pm" → memory_query {"kind": "time_window", ...}
 - "open notepad"           → open_app {"name": "notepad"}
+- "close spotify"          → close_app {"name": "spotify"}
+- "close chrome"           → close_app {"name": "chrome"}
+- "kill discord"           → close_app {"name": "discord", "force": true}
+- "shut down notepad"      → close_app {"name": "notepad"}
 - ANYTHING you'd answer with a Mac/Linux shell command → call the tool
   instead. You are on Windows. You can ACT, not just describe.
 
