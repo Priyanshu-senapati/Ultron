@@ -564,14 +564,28 @@ class VoiceEngine:
             return
         if self.state_machine.state != VoiceState.IDLE:
             return
+        if self._current_request is not None and not self._current_request.done():
+            return
         now = time.monotonic()
-        if (now - self._last_wake_ts) < 2.0:
+        if (now - self._last_wake_ts) < 3.0:
             return
         self._last_wake_ts = now
 
+        # Publish wake_word_armed HERE (inside the dedup guard) so the
+        # HUD only sees one event per wake session. Previously this was
+        # in the wake listener which fires before dedup can reject.
+        if self.bridge is not None:
+            try:
+                await self.bridge.publish("wake_word_armed", {
+                    "transcript": query or "(wake)",
+                    "query": query or "",
+                    "has_trailing_query": bool(query),
+                })
+            except Exception:
+                pass
+
         query = query.strip()
         if not query:
-            # Wake word alone, no embedded query -- mimic a hotkey press.
             logger.info("wake word with no query -- starting LISTENING")
             await self.state_machine.transition(VoiceState.LISTENING, "wake_word")
             self._current_request = asyncio.create_task(

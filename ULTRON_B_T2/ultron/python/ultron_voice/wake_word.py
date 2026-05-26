@@ -274,21 +274,10 @@ class WakeWordListener:
             logger.info(
                 "wake word detected (transcript=%r, query=%r)", text, query
             )
-            # Tell the world that ULTRON has been activated. Fires
-            # BEFORE state machine transition + before any chime — this
-            # is the moment HUDs render their "I heard you, speak now"
-            # banner. Distinct from wake_listener_heard (which is per
-            # transcript, matched or not) — wake_word_armed only fires
-            # when wake actually matched.
-            if self.publish is not None:
-                try:
-                    await self.publish("wake_word_armed", {
-                        "transcript": text,
-                        "query": query or "",
-                        "has_trailing_query": bool(query),
-                    })
-                except Exception:
-                    pass
+            # wake_word_armed is published by the ENGINE after its dedup
+            # guard passes — publishing here caused double HUD events
+            # because the listener fires before the engine can reject.
+            #
             # Audible cue the moment we know the wake word fired. The
             # recording is already finished by this point but the user
             # has been waiting through silence_timeout + STT — the
