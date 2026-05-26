@@ -103,6 +103,13 @@ TOOLS YOU CAN CALL
                               Graceful close by default. Pass force=true
                               to force-kill. Same names as open_app plus
                               any running process name.
+- screen_control(action, ...) interact with the screen. Actions:
+                              read_screen (describe what's visible),
+                              click_at (x, y), double_click (x, y),
+                              right_click (x, y), type_text (text),
+                              hotkey (keys=["ctrl","c"]),
+                              scroll (direction, clicks),
+                              move_mouse (x, y), mouse_position.
 - window_layout(action, name?) save/restore window arrangements.
                               action: save, restore, list. Example:
                               save current layout as "work", then later
@@ -183,6 +190,11 @@ ACTION VS TALK — examples (always pick the tool when one fits):
 - "run work mode"          → run_macro {"name": "work_mode"}
 - "save this layout as work" → window_layout {"action": "save", "name": "work"}
 - "restore work layout"   → window_layout {"action": "restore", "name": "work"}
+- "what's on my screen"   → screen_control {"action": "read_screen"}
+- "click at 500 300"      → screen_control {"action": "click_at", "x": 500, "y": 300}
+- "type hello"            → screen_control {"action": "type_text", "text": "hello"}
+- "scroll down"           → screen_control {"action": "scroll", "direction": "down"}
+- "press ctrl c"          → screen_control {"action": "hotkey", "keys": ["ctrl", "c"]}
 - "night mode"             → run_macro {"name": "night_mode"}
 - ANYTHING you'd answer with a Mac/Linux shell command → call the tool
   instead. You are on Windows. You can ACT, not just describe.

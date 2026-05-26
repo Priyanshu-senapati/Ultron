@@ -177,6 +177,23 @@ def _intent_open_app(m: re.Match[str]) -> IntentMatch:
     )
 
 
+def _intent_read_screen(_m: re.Match[str]) -> IntentMatch:
+    return IntentMatch(
+        tool_name="screen_control",
+        args={"action": "read_screen"},
+        reply="Reading the screen.",
+    )
+
+
+def _intent_scroll(m: re.Match[str]) -> IntentMatch:
+    direction = (m.group("dir") or "down").strip().lower()
+    return IntentMatch(
+        tool_name="screen_control",
+        args={"action": "scroll", "direction": direction, "clicks": 3},
+        reply=f"Scrolling {direction}.",
+    )
+
+
 def _intent_save_layout(m: re.Match[str]) -> IntentMatch:
     name = m.group("name").strip().rstrip(".!?,").lower().replace(" ", "_")
     if not name:
@@ -405,6 +422,16 @@ _ROUTES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], IntentMatch]]] = 
         r"(?:\s+(?:the\s+)?(?:music|song|track|audio|playback|video))?"
         r"(?:\s+please)?$",
         re.IGNORECASE), _intent_media),
+
+    # — Screen reading / scrolling
+    (re.compile(
+        r"^(?:what(?:['']?s)?\s+(?:on\s+)?(?:my\s+)?screen|"
+        r"read\s+(?:my\s+)?screen|describe\s+(?:my\s+)?screen|"
+        r"what\s+(?:am\s+i|do\s+i)\s+(?:looking\s+at|see(?:ing)?))$",
+        re.IGNORECASE), _intent_read_screen),
+    (re.compile(
+        r"^(?:please\s+)?scroll\s+(?P<dir>up|down)(?:\s+(?:please|a\s+bit|more))?$",
+        re.IGNORECASE), _intent_scroll),
 
     # — Window layout save/restore
     (re.compile(
