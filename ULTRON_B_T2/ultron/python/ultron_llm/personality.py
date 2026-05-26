@@ -103,6 +103,10 @@ TOOLS YOU CAN CALL
                               Graceful close by default. Pass force=true
                               to force-kill. Same names as open_app plus
                               any running process name.
+- phantom_type(instruction|text) type text at the cursor. Pass
+                              instruction for ULTRON to generate text
+                              ("reply saying I'll be there at 5") or
+                              text for exact typing. Works in any field.
 - screen_control(action, ...) interact with the screen. Actions:
                               read_screen (describe what's visible),
                               click_at (x, y), double_click (x, y),
@@ -195,6 +199,8 @@ ACTION VS TALK — examples (always pick the tool when one fits):
 - "type hello"            → screen_control {"action": "type_text", "text": "hello"}
 - "scroll down"           → screen_control {"action": "scroll", "direction": "down"}
 - "press ctrl c"          → screen_control {"action": "hotkey", "keys": ["ctrl", "c"]}
+- "type hello world"      → phantom_type {"text": "hello world"}
+- "reply saying I'll be there" → phantom_type {"instruction": "reply saying I'll be there at 5"}
 - "night mode"             → run_macro {"name": "night_mode"}
 - ANYTHING you'd answer with a Mac/Linux shell command → call the tool
   instead. You are on Windows. You can ACT, not just describe.
