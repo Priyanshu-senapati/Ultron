@@ -429,20 +429,12 @@ class WakeWordListener:
                     chunk, _ = stream.read(CHUNK_SAMPLES)
                     mono = chunk[:, 0] if chunk.ndim == 2 else chunk
                     chunks.append(mono.copy())
-
-                    if self.vad is not None:
-                        try:
-                            is_speech = self.vad.is_speech(mono)
-                        except Exception:
-                            is_speech = True
-                        if is_speech:
-                            saw_speech = True
-                            silent_run = 0
-                        else:
-                            if saw_speech:
-                                silent_run += 1
-                                if silent_run >= self._silence_chunks_needed:
-                                    break
+                    # No VAD-based early termination. On quiet mics
+                    # (peaks 0.005) VAD never detects speech, so the
+                    # silence counter would cut the segment to 2.5s
+                    # before the user finishes speaking. We record the
+                    # full wake_segment_max_secs and let amplify_to_peak
+                    # + Whisper handle the quiet audio.
         except Exception as exc:
             logger.error("wake listener: input stream failed: %s", exc)
             return None
