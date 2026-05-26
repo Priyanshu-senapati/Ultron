@@ -430,6 +430,17 @@ _DATA_QUESTION_PATTERNS = {
     # — answered directly from state.spotify, no LLM hallucination.
     # "is spotify connected" / "spotify status" / "can you control spotify"
     # — answers from state.spotify presence + freshness.
+    "system_health": re.compile(
+        r"^(?:how(?:\s+is|['']?s)?\s+(?:my\s+)?(?:system|laptop|computer|pc|machine)"
+        r"(?:\s+doing)?|"
+        r"system\s+(?:health|status|stats|info(?:rmation)?)|"
+        r"(?:cpu|gpu|ram|memory)\s+(?:temp(?:erature)?|usage|status|stats)|"
+        r"(?:is\s+(?:my\s+)?(?:system|laptop|pc|gpu|cpu)\s+"
+        r"(?:over\s*heat(?:ing|ed)?|hot|running\s+hot|over\s*clock(?:ed|ing)?|"
+        r"under\s+(?:load|pressure|stress)))|"
+        r"(?:what(?:['']?s)?\s+(?:my\s+)?(?:cpu|gpu)\s+(?:temp|temperature|usage))|"
+        r"thermals|temperatures)$",
+        re.IGNORECASE),
     "spotify_status": re.compile(
         r"^(?:(?:is\s+)?spotify\s+(?:connected|authorised|authorized|"
         r"working|set\s+up|setup|hooked\s+up|ready)|"
@@ -454,7 +465,7 @@ _DATA_QUESTION_PATTERNS = {
 def _data_answer(kind: str, state: Any) -> Optional[str]:
     """Format a one-line spoken answer from LiveState. None = no data,
     fall through to LLM."""
-    if state is None:
+    if state is None and kind != "system_health":
         return None
     if kind == "time":
         si = getattr(state, "sysinfo", None) or {}
@@ -546,6 +557,46 @@ def _data_answer(kind: str, state: Any) -> Optional[str]:
         if not w.get("connected"):
             return "Wifi off."
         return f"Connected to {w.get('ssid', 'wifi')}."
+    if kind == "system_health":
+        sh = getattr(state, "syshealth", None) or {}
+        if not isinstance(sh, dict) or not sh:
+            try:
+                import psutil as _ps
+                import subprocess as _sp
+                cpu_pct = _ps.cpu_percent(interval=0.3)
+                ram = _ps.virtual_memory()
+                parts = [f"CPU at {cpu_pct:.0f} percent"]
+                parts.append(f"RAM at {ram.percent:.0f} percent, {ram.used // (1024**3)} of {ram.total // (1024**3)} GB used")
+                try:
+                    r = _sp.run(
+                        ["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total",
+                         "--format=csv,noheader,nounits"],
+                        capture_output=True, text=True, timeout=5)
+                    if r.returncode == 0:
+                        gp = [x.strip() for x in r.stdout.strip().split(",")]
+                        parts.append(f"GPU at {gp[1]} percent, {gp[0]} degrees, {gp[2]} of {gp[3]} MB VRAM")
+                except Exception:
+                    pass
+                return ". ".join(parts) + "."
+            except Exception:
+                return None
+        cpu_pct = sh.get("cpu_percent", 0)
+        ram_pct = sh.get("ram_percent", 0)
+        ram_used = sh.get("ram_used_gb", 0)
+        ram_total = sh.get("ram_total_gb", 0)
+        parts = [f"CPU at {cpu_pct:.0f} percent"]
+        parts.append(f"RAM at {ram_pct:.0f} percent, {ram_used} of {ram_total} GB")
+        gpu = sh.get("gpu")
+        if gpu:
+            parts.append(
+                f"GPU {gpu.get('name', 'GPU')} at {gpu.get('util_pct', 0):.0f} percent, "
+                f"{gpu.get('temp_c', 0):.0f} degrees, "
+                f"{gpu.get('mem_used_mb', 0):.0f} of {gpu.get('mem_total_mb', 0):.0f} MB VRAM"
+            )
+        cpu_temp = sh.get("cpu_temp_c")
+        if cpu_temp:
+            parts.append(f"CPU temperature {cpu_temp:.0f} degrees")
+        return ". ".join(parts) + "."
     if kind == "spotify_status":
         sp = getattr(state, "spotify", None) or {}
         if not isinstance(sp, dict) or not sp:

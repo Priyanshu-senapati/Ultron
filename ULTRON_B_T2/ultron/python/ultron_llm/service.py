@@ -587,6 +587,8 @@ class LLMService:
             self._state.update_news(payload)
         elif kind == "system_info":
             self._state.update_sysinfo(payload)
+        elif kind == "system_health_update":
+            self._state.update_syshealth(payload)
         elif kind == "emotion_state_changed":
             self._state.update_emotion(payload)
         elif kind == "recall_query_result":
@@ -686,6 +688,8 @@ class LLMService:
                 "stocks_update",
                 "news_update",
                 "system_info",
+                # System health monitor.
+                "system_health_update",
                 # Emotional intelligence layer.
                 "emotion_state_changed",
             ],
