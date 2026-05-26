@@ -148,9 +148,15 @@ def build(config: ToolsConfig) -> Tool:
             clicks = int(args.get("clicks", 3))
             direction = str(args.get("direction", "down")).lower()
             try:
-                import pyautogui
-                amount = -clicks if direction == "down" else clicks
-                pyautogui.scroll(amount)
+                import ctypes
+                MOUSEEVENTF_WHEEL = 0x0800
+                WHEEL_DELTA = 120
+                amount = WHEEL_DELTA * clicks
+                if direction == "down":
+                    amount = -amount
+                ctypes.windll.user32.mouse_event(
+                    MOUSEEVENTF_WHEEL, 0, 0, amount, 0
+                )
                 return {"ok": True, "action": "scroll",
                         "direction": direction, "clicks": clicks}
             except Exception as exc:
