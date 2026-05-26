@@ -122,6 +122,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         web_open,
         web_search,
         wellness_query,
+        window_layout,
         write_file,
     )
 
@@ -146,6 +147,7 @@ def register_builtin_tools(registry: ToolRegistry, config: ToolsConfig) -> None:
         open_app.build(config),
         close_app.build(config),
         run_macro.build(config),
+        window_layout.build(config),
         media_control.build(config),
         brightness.build(config),
         web_open.build(config),
